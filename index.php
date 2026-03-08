@@ -1845,14 +1845,21 @@ async function poll(){
             notify(m.from_user, prev, 'dm');
             if(S.type=='dm' && S.id==m.from_user && document.hasFocus()) req('send', {to_user:m.from_user, type:'read', extra:m.timestamp});
         }
-        S.groups={}; for(let g of d.groups){ S.groups[g.id]=g; let ex=await get('group',g.id); if(!ex.length) await save('group',g.id,[]); }
+        S.groups={}; 
+        for(let g of d.groups){ 
+            S.groups[g.id]=g; 
+            let type = g.category === 'channel' ? 'channel' : 'group';
+            let ex=await get(type,g.id); if(!ex.length) await save(type,g.id,[]); 
+        }
         await save('meta', 'groups', S.groups);
         for(let m of d.group_msgs){ 
             if(m.id) S.groupCursors[m.group_id] = Math.max(S.groupCursors[m.group_id] || 0, m.id);
-            if(m.type=='delete'){ await removeMsg('group',m.group_id,m.extra_data); continue; }
-            await store('group',m.group_id,m); 
+            let g = S.groups[m.group_id];
+            let type = (g && g.category === 'channel') ? 'channel' : 'group';
+            if(m.type=='delete'){ await removeMsg(type,m.group_id,m.extra_data); continue; }
+            await store(type,m.group_id,m); 
             let prev = m.type==='text' ? m.message : '['+m.type+']';
-            notify(m.group_id, prev, 'group'); 
+            notify(m.group_id, prev, type); 
         }
         for(let m of d.public_msgs){
             if(m.type=='delete'){ await removeMsg('public','global',m.extra_data); continue; }
@@ -2326,7 +2333,8 @@ async function renderLists(){
         let channelsList = [];
         let groups = [];
         for(let g of Object.values(S.groups)) {
-            let h = await get('group', g.id);
+            let type = g.category === 'channel' ? 'channel' : 'group';
+            let h = await get(type, g.id);
             let lastMsg = h.length ? h[h.length-1] : null;
             groups.push({g, ts: lastMsg ? lastMsg.timestamp : (g.created_at || 0)});
         }
