@@ -3745,6 +3745,28 @@ mv.addEventListener('touchend', e => {
     } else mv.style.transform = '';
 }, {passive:true});
 
+// Mobile Tab Swipe
+const np = document.getElementById('nav-panel');
+let tTSX=0, tTSY=0;
+np.addEventListener('touchstart', e => {
+    if(window.innerWidth > 768) return;
+    tTSX = e.touches[0].clientX; tTSY = e.touches[0].clientY;
+}, {passive:true});
+np.addEventListener('touchend', e => {
+    if(window.innerWidth > 768) return;
+    let dx = e.changedTouches[0].clientX - tTSX, dy = e.changedTouches[0].clientY - tTSY;
+    if(Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        let tabs = ['chats', 'groups', 'channels'];
+        if(!LIGHTWEIGHT_MODE) tabs.push('observatory');
+        tabs.push('settings');
+        let i = tabs.indexOf(S.tab);
+        if(i !== -1) {
+            if(dx < 0 && i < tabs.length - 1) switchTab(tabs[i+1]);
+            else if(dx > 0 && i > 0) switchTab(tabs[i-1]);
+        }
+    }
+}, {passive:true});
+
 function updateWorldClocks() {
     if(S.tab !== 'observatory') return;
     const el = document.getElementById('obs-clocks');
