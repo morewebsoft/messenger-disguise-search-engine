@@ -1,6 +1,6 @@
 <?php
 // LIGHTWEIGHT MODE: set to true to disable the Observatory and all external resource loading
-$lightweightMode = false;
+$lightweightMode = true;
 
 if ($lightweightMode) {
     header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none';");
@@ -951,6 +951,7 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
     .rail-badge { position:absolute; top:-2px; right:-2px; background:red; border-radius:50%; width:10px; height:10px; display:none; border:2px solid var(--rail); }
 
     .nav-panel { width:280px; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+    .nav-panel.full-width { width: auto; flex: 1; border-right: none; }
     .panel-header { padding:20px; font-weight:bold; font-size:1.2rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
     .list-area { flex:1; overflow-y:auto; overscroll-behavior-y: contain; }
     .list-item { padding:15px; border-bottom:1px solid var(--border); display:flex; align-items:center; cursor:pointer; transition:0.2s; position:relative; user-select:none; }
@@ -2122,12 +2123,18 @@ function switchTab(t){
     document.getElementById('nav-'+t).classList.add('active');
     document.querySelectorAll('.tab-content').forEach(e=>e.style.display='none');
     
+    document.getElementById('nav-panel').classList.remove('full-width');
+    document.getElementById('main-view').style.display = '';
+    
     if(t=='public') {
         S.type='public'; S.id='global'; S.reply=null;
+        document.getElementById('nav-panel').classList.add('full-width');
+        document.getElementById('main-view').style.display = 'none';
         renderChat();
         scrollToBottom(true);
     }
     if(t=='observatory') {
+    } else if(t=='observatory') {
         document.getElementById('chat-view').style.display='none';
         document.getElementById('observatory-view').style.display='flex';
         loadObservatory();
