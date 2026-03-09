@@ -2583,14 +2583,12 @@ function closeChat() {
 async function send(){
     let isPub = S.type === 'public';
     let inputEl = isPub ? document.getElementById('public-txt') : document.getElementById('txt');
-    let inputEl = document.getElementById('txt');
     let txt=inputEl.value.trim();
     if(!txt)return;
     
     // Optimistic UI
     inputEl.value=''; 
     if(!isPub) { document.getElementById('txt').style.height='40px'; toggleMainBtn(); }
-    document.getElementById('txt').style.height='40px'; toggleMainBtn();
     if(navigator.vibrate) navigator.vibrate(20);
     let replyId = S.reply;
     cancelReply();
