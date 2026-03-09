@@ -1085,6 +1085,23 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
     .att-loc { background: linear-gradient(135deg, #ff9966, #ff5e62); }
     @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     
+    /* Emoji Drawer */
+    .emoji-drawer { height: 280px; background: var(--panel); border-top: 1px solid var(--border); display: none; flex-direction: column; animation: slideUp 0.2s ease-out; z-index: 90; }
+    .emoji-tabs { display: flex; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.1); }
+    .emoji-tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: #888; transition: 0.2s; font-size: 0.9rem; font-weight: 500; }
+    .emoji-tab:hover { background: rgba(255,255,255,0.05); }
+    .emoji-tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); background: rgba(255,255,255,0.05); }
+    .emoji-content { flex: 1; overflow-y: auto; padding: 10px; display: grid; gap: 5px; align-content: start; }
+    .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
+    .emoji-item { font-size: 1.6rem; cursor: pointer; text-align: center; padding: 5px; border-radius: 6px; transition: transform 0.1s; user-select: none; }
+    .emoji-item:hover { background: rgba(255,255,255,0.1); transform: scale(1.2); }
+    .sticker-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; }
+    .sticker-item { width: 100%; aspect-ratio: 1; object-fit: contain; cursor: pointer; transition: transform 0.1s; }
+    .sticker-item:hover { transform: scale(1.05); }
+    .gif-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+    .gif-item { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; cursor: pointer; }
+    .emoji-search { padding: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); width: 100%; box-sizing: border-box; border-radius: 4px; margin-bottom: 10px; }
+
     @keyframes sequentialReplace { 0%, 100% { opacity: 0; transform: translateX(-50%) scale(0.95); } 15% { opacity: 1; transform: translateX(-50%) scale(1); } 30% { opacity: 1; transform: translateX(-50%) scale(1); } 45% { opacity: 0; transform: translateX(-50%) scale(0.95); } }
     @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.7; } }
 
@@ -1471,6 +1488,9 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
             <button class="btn-icon" id="btn-att" onclick="handleAttClick(event)">
                 <svg viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>
             </button>
+            <button class="btn-icon" id="btn-emoji" onclick="toggleEmojiDrawer()">
+                <svg viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
+            </button>
             <button class="btn-icon" id="btn-send" style="color:var(--accent)" onmousedown="event.preventDefault()" onclick="handleMainBtn()">
                 <svg id="icon-mic" viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
                 <svg id="icon-send" viewBox="0 0 24 24" width="24" fill="currentColor" style="display:none"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
@@ -1494,6 +1514,15 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
                 <div class="att-icon att-loc"><svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div>
                 <span class="att-label" data-i18n="location">Location</span>
             </div>
+        </div>
+        <!-- Emoji Drawer -->
+        <div id="emoji-drawer" class="emoji-drawer">
+            <div class="emoji-tabs">
+                <div class="emoji-tab active" id="tab-em-emoji" onclick="switchEmojiTab('emoji')">Emojis</div>
+                <div class="emoji-tab" id="tab-em-sticker" onclick="switchEmojiTab('sticker')">Stickers</div>
+                <div class="emoji-tab" id="tab-em-gif" onclick="switchEmojiTab('gif')">GIFs</div>
+            </div>
+            <div id="emoji-content" class="emoji-content emoji-grid"></div>
         </div>
         </div>
         
@@ -1538,7 +1567,8 @@ const TR = {
         type_msg: "Type a message...", type_enc: "Type an encrypted message...", only_owner: "Only owner can post",
         start_chat: "Start chatting", join_code: "Join via Code", incoming_call: "Incoming Video Call...",
         cancel: "CANCEL", preview: "Preview", send: "Send",
-        market_usd: "USD", market_oil: "Oil", market_updated: "Updated"
+        market_usd: "USD", market_oil: "Oil", market_updated: "Updated",
+        search_gifs: "Search GIFs..."
     },
     fa: {
         tab_chats: "گفتگوها", tab_groups: "گروه‌ها", tab_channels: "کانال‌ها", tab_public: "عمومی", tab_observatory: "رصدخانه", tab_settings: "تنظیمات", tab_about: "درباره",
@@ -1551,7 +1581,8 @@ const TR = {
         type_msg: "پیامی بنویسید...", type_enc: "پیام رمزگذاری شده...", only_owner: "فقط مالک می‌تواند پست بگذارد",
         start_chat: "شروع گفتگو", join_code: "عضویت با کد", incoming_call: "تماس تصویری ورودی...",
         cancel: "لغو", preview: "پیش‌نمایش", send: "ارسال",
-        market_usd: "دلار", market_oil: "نفت", market_updated: "بروزرسانی"
+        market_usd: "دلار", market_oil: "نفت", market_updated: "بروزرسانی",
+        search_gifs: "جستجوی گیف..."
     }
 };
 let curLang = localStorage.getItem('mw_lang') || 'en';
@@ -3068,6 +3099,7 @@ function esc(t){ return t?t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/
 document.getElementById('txt').onkeydown=e=>{if(e.key=='Enter' && !e.shiftKey){e.preventDefault();send()}};
 document.getElementById('txt').onkeydown=e=>{if(e.key=='Enter' && !e.shiftKey){e.preventDefault();handleMainBtn()}};
 document.getElementById('txt').addEventListener('focus', () => { document.getElementById('att-menu').style.display = 'none'; });
+    document.getElementById('txt').addEventListener('focus', () => { document.getElementById('emoji-drawer').style.display = 'none'; });
 
 async function startRec(){
     try{
@@ -3190,6 +3222,7 @@ window.onclick=(e)=>{
     if(!e.target.closest('.menu-btn'))document.getElementById('chat-menu').style.display='none';
     if(!e.target.closest('.ctx-menu') && !e.target.closest('.msg')) document.getElementById('ctx-menu').style.display='none';
     if(!e.target.closest('#att-menu') && !e.target.closest('#btn-att') && document.getElementById('att-menu')) document.getElementById('att-menu').style.display='none';
+    if(!e.target.closest('#emoji-drawer') && !e.target.closest('#btn-emoji') && document.getElementById('emoji-drawer')) document.getElementById('emoji-drawer').style.display='none';
 };
 window.oncontextmenu = (e) => {
     if(e.defaultPrevented) return;
@@ -3436,6 +3469,87 @@ async function handleSyncData(peerId, data) {
         for(let item of data.d) await store(item.cat, item.id, item.m);
         if(data.d.length) { showToast(`WSync: Synced ${data.d.length} msgs`); renderLists(); }
     }
+}
+
+// --- EMOJI DRAWER ---
+const EMOJIS = "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 🥹 ☺️ 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🫡 🤫 🫠 🤥 😶 🫥 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 😵‍💫 🫨 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 ☠️ 👽 👾 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 🫶 👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🫶 👐 🙌 🫶 🤝 🙏 ✍️ 💅 🤳 💪 🦵 🦶 👂 🦻 👃 🧠 🫀 🫁 🦷 🦴 👀 👁️ 👅 👄 🫦 💋 🩸";
+let currentEmojiTab = 'emoji';
+
+function toggleEmojiDrawer() {
+    let d = document.getElementById('emoji-drawer');
+    let wasVisible = d.style.display === 'flex';
+    document.getElementById('att-menu').style.display = 'none';
+    d.style.display = wasVisible ? 'none' : 'flex';
+    if(!wasVisible) {
+        switchEmojiTab(currentEmojiTab);
+    }
+}
+
+function switchEmojiTab(tab) {
+    currentEmojiTab = tab;
+    document.querySelectorAll('.emoji-tab').forEach(e => e.classList.remove('active'));
+    document.getElementById('tab-em-'+tab).classList.add('active');
+    let c = document.getElementById('emoji-content');
+    c.innerHTML = '';
+    c.className = 'emoji-content';
+    
+    if(tab === 'emoji') {
+        c.classList.add('emoji-grid');
+        EMOJIS.split(' ').forEach(e => {
+            if(!e) return;
+            let el = document.createElement('div');
+            el.className = 'emoji-item';
+            el.innerText = e;
+            el.onclick = () => insertEmoji(e);
+            c.appendChild(el);
+        });
+    } else if(tab === 'sticker') {
+        c.classList.add('sticker-grid');
+        // Demo Stickers (using Kaomoji for lightweight self-contained)
+        const stickers = ["(╯°□°)╯︵ ┻━┻", "¯\\_(ツ)_/¯", "ಠ_ಠ", "( ͡° ͜ʖ ͡°)", "ʕ•ᴥ•ʔ", "(▀̿Ĺ̯▀̿ ̿)", "♥‿♥", "ᕙ(⇀‸↼‶)ᕗ", "(づ｡◕‿‿◕｡)づ", "Wait...", "Cool", "Nice", "OMG", "LOL"];
+        stickers.forEach(s => {
+            let el = document.createElement('div');
+            el.className = 'emoji-item'; // Reuse style
+            el.style.fontSize = '1rem';
+            el.style.border = '1px solid var(--border)';
+            el.innerText = s;
+            el.onclick = () => { sendSticker(s); toggleEmojiDrawer(); };
+            c.appendChild(el);
+        });
+    } else if(tab === 'gif') {
+        c.classList.add('gif-grid');
+        let search = document.createElement('input');
+        search.className = 'emoji-search';
+        search.placeholder = TR[curLang].search_gifs;
+        c.appendChild(search);
+        // Demo GIFs (Static placeholders since no API key)
+        let gifs = ['https://media.tenor.com/m807M48tlgwAAAAM/cat-typing.gif', 'https://media.tenor.com/C38D1c_8qP8AAAAM/hello-hi.gif', 'https://media.tenor.com/pCgI2Fj31zAAAAAM/thumbs-up-ok.gif'];
+        gifs.forEach(url => {
+            let el = document.createElement('img');
+            el.className = 'gif-item';
+            el.src = url;
+            el.onclick = () => { sendSticker(url, 'image'); toggleEmojiDrawer(); };
+            c.appendChild(el);
+        });
+    }
+}
+
+function insertEmoji(char) {
+    let txt = document.getElementById('txt');
+    txt.value += char;
+    txt.focus();
+    toggleMainBtn();
+}
+
+async function sendSticker(content, type='text') {
+    let ts = Math.floor(Date.now()/1000);
+    let msgObj = { from_user: ME, message: content, type: type, timestamp: ts, pending: true };
+    await store(S.type, S.id, msgObj);
+    scrollToBottom(true);
+    
+    let load = { message: content, type: type, timestamp: ts };
+    if(S.type=='dm') load.to_user=S.id; else if(S.type=='group'||S.type=='channel') load.group_id=S.id; else if(S.type=='public') load.group_id=-1;
+    req('send', load);
 }
 
 // Mobile Swipe Back
