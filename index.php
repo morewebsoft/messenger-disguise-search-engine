@@ -3,9 +3,9 @@
 $lightweightMode = true;
 
 if ($lightweightMode) {
-    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none';");
+    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-ancestors 'none';");
 } else {
-    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; frame-ancestors 'none';");
+    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' data: blob: https://fonts.googleapis.com https://fonts.gstatic.com; frame-ancestors 'none';");
 }
 ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_samesite', 'Strict');
@@ -2616,14 +2616,23 @@ function createMsgNode(m, showSender, history){
     let txt=esc(m.message);
     if(m.type=='image') txt=`<img src="${m.message.replace(/"/g, '&quot;')}" onclick="openLightbox(this.src)" onload="scrollToBottom(false)">`;
     else if(m.type=='video') txt=`<video src="${m.message.replace(/"/g, '&quot;')}" controls style="max-width:100%;border-radius:8px"></video>`;
-    else if(m.type=='audio') txt=`<div class="audio-player">
+    else if(m.type=='audio') {
+        let isVoice = !m.extra_data;
+        let extra = '';
+        if(!isVoice) {
+             let safeName = (m.extra_data || 'audio').replace(/'/g, "\\'");
+             extra = `<div style="display:flex;gap:2px;margin-left:5px"><button class="btn-icon" style="width:28px;height:28px;padding:0;color:inherit;background:none" onclick="downloadFile('${m.message}', '${safeName}')" title="Download"><svg viewBox="0 0 24 24" width="18" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg></button><button class="btn-icon" style="width:28px;height:28px;padding:0;color:inherit;background:none" onclick="shareFile('${m.message}', '${safeName}')" title="Share"><svg viewBox="0 0 24 24" width="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg></button></div>`;
+        }
+        txt=`<div class="audio-player" ${!isVoice?'style="padding:8px;background:rgba(0,0,0,0.2);border-radius:8px"':''}>
             <button class="play-btn" onclick="playAudio(this)">
                 <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             </button>
             <div class="audio-progress" onclick="seekAudio(this, event)"><div class="audio-bar"></div></div>
             <div class="audio-time">0:00</div>
+            ${extra}
             <audio src="${m.message}" style="display:none" onloadedmetadata="this.parentElement.querySelector('.audio-time').innerText=formatTime(this.duration)"></audio>
-        </div>`;
+        </div>${!isVoice ? `<div style="font-size:0.75rem;opacity:0.8;margin-top:4px;margin-left:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px">🎵 ${esc(m.extra_data)}</div>` : ''}`;
+    }
     else if(m.type=='sticker') txt=`<img src="${m.message}" style="width:128px;height:128px;object-fit:contain">`;
     else if(m.type=='gif') txt=`<video src="${m.message}" autoplay loop muted playsinline style="max-width:100%;border-radius:8px;cursor:pointer" onclick="if(this.paused)this.play();else this.pause()"></video>`;
     else if(m.type=='file') {
@@ -4133,6 +4142,17 @@ function downloadImage() {
     a.href = lbImg.src;
     a.download = 'image_' + Date.now();
     a.click();
+}
+
+async function shareFile(data, name) {
+    if(navigator.share) {
+        try {
+            let blob = await (await fetch(data)).blob();
+            let file = new File([blob], name, {type: blob.type});
+            if(navigator.canShare && navigator.canShare({files:[file]})) await navigator.share({files:[file]});
+            else await navigator.share({url: data});
+        } catch(e) { showToast("Share failed"); }
+    } else showToast("Sharing not supported");
 }
 
 // Zoom & Pan
