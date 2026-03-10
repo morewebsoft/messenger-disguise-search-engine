@@ -3863,25 +3863,97 @@ mv.addEventListener('touchend', e => {
 
 // Mobile Tab Swipe
 const np = document.getElementById('nav-panel');
-let tTSX=0, tTSY=0;
+let tabSwipe = { startX:0, startY:0, current:null, target:null, active:false, width:0 };
+const TABS_ORDER = ['chats', 'groups', 'channels', 'observatory', 'settings'];
+
 np.addEventListener('touchstart', e => {
     if(window.innerWidth > 768) return;
-    tTSX = e.touches[0].clientX; tTSY = e.touches[0].clientY;
+    tabSwipe.startX = e.touches[0].clientX;
+    tabSwipe.startY = e.touches[0].clientY;
+    tabSwipe.active = false;
+    tabSwipe.width = np.offsetWidth;
+    tabSwipe.current = document.getElementById('tab-'+S.tab);
+    tabSwipe.target = null;
+    if(tabSwipe.current) tabSwipe.current.style.transition = 'none';
 }, {passive:true});
-np.addEventListener('touchend', e => {
-    if(window.innerWidth > 768) return;
-    let dx = e.changedTouches[0].clientX - tTSX, dy = e.changedTouches[0].clientY - tTSY;
-    if(Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        let tabs = ['chats', 'groups', 'channels'];
-        if(!LIGHTWEIGHT_MODE) tabs.push('observatory');
-        tabs.push('settings');
-        let i = tabs.indexOf(S.tab);
-        if(i !== -1) {
-            if(dx < 0 && i < tabs.length - 1) switchTab(tabs[i+1]);
-            else if(dx > 0 && i > 0) switchTab(tabs[i-1]);
+
+np.addEventListener('touchmove', e => {
+    if(window.innerWidth > 768 || !tabSwipe.current) return;
+    let dx = e.touches[0].clientX - tabSwipe.startX;
+    let dy = e.touches[0].clientY - tabSwipe.startY;
+    
+    if(!tabSwipe.active) {
+        if(Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            tabSwipe.active = true;
+            let tabs = TABS_ORDER.filter(t => !LIGHTWEIGHT_MODE || t !== 'observatory');
+            let idx = tabs.indexOf(S.tab);
+            
+            if(dx < 0 && idx < tabs.length - 1) tabSwipe.target = document.getElementById('tab-'+tabs[idx+1]);
+            else if(dx > 0 && idx > 0) tabSwipe.target = document.getElementById('tab-'+tabs[idx-1]);
+            
+            if(tabSwipe.target) {
+                tabSwipe.target.style.display = 'flex';
+                tabSwipe.target.style.position = 'absolute';
+                tabSwipe.target.style.top = '28px';
+                tabSwipe.target.style.width = '100%';
+                tabSwipe.target.style.height = 'calc(100% - 28px)';
+                tabSwipe.target.style.zIndex = '20';
+                tabSwipe.target.style.background = 'var(--panel)';
+                tabSwipe.target.style.transition = 'none';
+                tabSwipe.target.style.transform = `translateX(${dx < 0 ? '100%' : '-100%'})`;
+            }
         }
     }
-}, {passive:true});
+    
+    if(tabSwipe.active) {
+        if(e.cancelable) e.preventDefault();
+        tabSwipe.current.style.transform = `translateX(${dx}px)`;
+        if(tabSwipe.target) {
+            let start = dx < 0 ? tabSwipe.width : -tabSwipe.width;
+            tabSwipe.target.style.transform = `translateX(${start + dx}px)`;
+        }
+    }
+}, {passive:false});
+
+np.addEventListener('touchend', e => {
+    if(window.innerWidth > 768 || !tabSwipe.current) return;
+    if(tabSwipe.active) {
+        let dx = e.changedTouches[0].clientX - tabSwipe.startX;
+        let threshold = tabSwipe.width * 0.25;
+        let switchAction = tabSwipe.target && Math.abs(dx) > threshold;
+        
+        requestAnimationFrame(() => {
+            tabSwipe.current.style.transition = 'transform 0.2s ease-out';
+            if(tabSwipe.target) tabSwipe.target.style.transition = 'transform 0.2s ease-out';
+            
+            if(switchAction) {
+                tabSwipe.current.style.transform = `translateX(${dx < 0 ? '-100%' : '100%'})`;
+                tabSwipe.target.style.transform = 'translateX(0)';
+                setTimeout(() => {
+                    resetTabStyles(tabSwipe.current);
+                    resetTabStyles(tabSwipe.target);
+                    switchTab(tabSwipe.target.id.replace('tab-', ''));
+                }, 200);
+            } else {
+                tabSwipe.current.style.transform = 'translateX(0)';
+                if(tabSwipe.target) {
+                    tabSwipe.target.style.transform = `translateX(${dx < 0 ? '100%' : '-100%'})`;
+                    setTimeout(() => {
+                        tabSwipe.target.style.display = 'none';
+                        resetTabStyles(tabSwipe.target);
+                    }, 200);
+                }
+            }
+        });
+    }
+    tabSwipe.active = false;
+});
+
+function resetTabStyles(el) {
+    if(!el) return;
+    el.style.position = ''; el.style.top = ''; el.style.width = ''; el.style.height = '';
+    el.style.zIndex = ''; el.style.background = ''; el.style.transform = ''; el.style.transition = '';
+}
 
 function updateWorldClocks() {
     if(S.tab !== 'observatory') return;
