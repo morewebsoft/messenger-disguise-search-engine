@@ -3121,6 +3121,16 @@ document.addEventListener('paste', e => {
     }
 });
 
+let dz = document.getElementById('input-box');
+let dzC = 0;
+dz.addEventListener('dragenter', e=>{ e.preventDefault(); dzC++; dz.style.boxShadow='inset 0 0 0 2px var(--accent)'; });
+dz.addEventListener('dragover', e=>{ e.preventDefault(); });
+dz.addEventListener('dragleave', e=>{ e.preventDefault(); dzC--; if(dzC===0)dz.style.boxShadow='none'; });
+dz.addEventListener('drop', e=>{ 
+    e.preventDefault(); dzC=0; dz.style.boxShadow='none';
+    if(e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+});
+
 function sendPreview() {
     if(pendingFile) sendFile(pendingFile);
     closePreview();
