@@ -2747,7 +2747,7 @@ function createMsgNode(m, showSender, history){
             ph.onclick = (e) => {
                 e.stopPropagation();
                 let v = document.createElement('video');
-                v.src = m.message;
+                v.src = m.message; // Load video only when play button is clicked
                 v.controls = true;
                 v.style.maxWidth = '100%';
                 v.style.borderRadius = '8px';
