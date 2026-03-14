@@ -1032,7 +1032,7 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
     .notif-item:hover { background:var(--hover-overlay); }
 
     .menu-btn { cursor:pointer; color:var(--text); opacity:0.8; position:relative; }
-    .menu-dropdown { position:absolute; top:35px; right:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; display:none; z-index:101; width:160px; box-shadow:0 5px 15px rgba(0,0,0,0.5); }
+    .menu-dropdown { position:absolute; top:35px; right:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; display:none; z-index:200; width:160px; box-shadow:0 5px 15px rgba(0,0,0,0.5); }
     .menu-item { padding:12px; border-bottom:1px solid var(--border); font-size:0.9rem; cursor:pointer; display:block; color:var(--text); }
     .menu-item:hover { background:rgba(255,255,255,0.1); }
     .red-text { color: #ff5555; }
