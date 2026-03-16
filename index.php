@@ -14,8 +14,8 @@ session_start();
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-ini_set('upload_max_filesize', '20M');
-ini_set('post_max_size', '20M');
+// To increase limits, you must change upload_max_filesize and post_max_size in your server's php.ini
+// ini_set() cannot change these values at runtime because files are processed before the script executes.
 
 // ADMIN CREDENTIALS
 $adminUser = '';
@@ -1673,6 +1673,17 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
 const ME = "<?php echo $_SESSION['user']; ?>";
 const CSRF_TOKEN = "<?php echo $_SESSION['csrf_token']; ?>";
 const LIGHTWEIGHT_MODE = <?php echo $lightweightMode ? 'true' : 'false'; ?>;
+<?php
+function mw_parse_bytes($s) {
+    $u = preg_replace('/[^bkmgtpezy]/i', '', $s); $s = preg_replace('/[^0-9\.]/', '', $s);
+    return $u ? round($s * pow(1024, stripos('bkmgtpezy', $u[0]))) : round($s);
+}
+$bytes_u = mw_parse_bytes(ini_get('upload_max_filesize')); $bytes_p = mw_parse_bytes(ini_get('post_max_size'));
+if ($bytes_u <= 0) $bytes_u = 1000 * 1024 * 1024 * 1024; if ($bytes_p <= 0) $bytes_p = 1000 * 1024 * 1024 * 1024;
+$js_upload_limit = min($bytes_u, $bytes_p); if ($js_upload_limit >= 1000 * 1024 * 1024 * 1024) $js_upload_limit = 20 * 1024 * 1024;
+?>
+const MAX_UPLOAD_SIZE = <?php echo $js_upload_limit; ?>;
+const MAX_UPLOAD_MB = Math.max(1, Math.round(MAX_UPLOAD_SIZE / (1024 * 1024)));
 let lastTyping = 0;
 let lastRead = 0;
 let mediaRec=null, audChunks=[], recMime='';
@@ -3162,8 +3173,8 @@ async function uploadFile(inp){
 }
 
 async function processFile(f) {
-    if(f.size > 20 * 1024 * 1024) {
-        alertModal('Error', 'File exceeds the 20MB limit.');
+    if(f.size > MAX_UPLOAD_SIZE) {
+        alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`);
         return;
     }
     document.getElementById('preview-img').style.display = 'none';
@@ -3258,8 +3269,8 @@ function closePreview() {
 }
 
 async function sendFile(fileToSend) {
-    if(fileToSend.size > 20 * 1024 * 1024) {
-        alertModal('Error', 'File exceeds the 20MB limit.');
+    if(fileToSend.size > MAX_UPLOAD_SIZE) {
+        alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`);
         return;
     }
     startProg();
@@ -3335,7 +3346,7 @@ async function sendFile(fileToSend) {
 
 async function handleAvUpload(inp) {
     let f = inp.files[0]; if(!f) return;
-    if(f.size > 20 * 1024 * 1024) { alertModal('Error', 'File exceeds the 20MB limit.'); return; }
+    if(f.size > MAX_UPLOAD_SIZE) { alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`); return; }
     startProg();
     try {
         let img = await new Promise((res,rej)=>{let i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f);});
@@ -4087,7 +4098,7 @@ function createSticker() {
     inp.onchange = async e => {
         let f = e.target.files[0];
         if(!f) return;
-        if(f.size > 20 * 1024 * 1024) { alertModal('Error', 'File exceeds the 20MB limit.'); return; }
+        if(f.size > MAX_UPLOAD_SIZE) { alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`); return; }
         startProg();
         try {
             let img = await new Promise((res,rej)=>{let i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f);});
@@ -4118,7 +4129,7 @@ function createGif() {
     inp.onchange = async e => {
         let f = e.target.files[0];
         if(!f) return;
-        if(f.size > 20 * 1024 * 1024) { alertModal('Error', 'File exceeds the 20MB limit.'); return; }
+        if(f.size > MAX_UPLOAD_SIZE) { alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`); return; }
         startProg();
         if(f.type.startsWith('video/')) {
             let v = document.createElement('video');
