@@ -14,8 +14,6 @@ session_start();
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-// To increase limits, you must change upload_max_filesize and post_max_size in your server's php.ini
-// ini_set() cannot change these values at runtime because files are processed before the script executes.
 
 // ADMIN CREDENTIALS
 $adminUser = '';
@@ -438,11 +436,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // AJAX UPLOAD
     if ($action === 'upload_msg') {
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            $msg = 'Upload failed';
-            if (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_INI_SIZE) {
-                $msg = 'File exceeds server size limit';
-            }
-            echo json_encode(['status'=>'error', 'message'=>$msg]); exit;
+            echo json_encode(['status'=>'error', 'message'=>'Upload failed']); exit;
         }
         
         $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -1235,7 +1229,6 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
         }
         .main-view.active { transform: translateX(0); }
         
-        .back-btn { display: flex; align-items: center; justify-content: center; margin-right: 10px; font-size: 1.5rem; padding: 5px; }
         .back-btn { display: flex; align-items: center; justify-content: center; margin-right: 5px; font-size: 1.5rem; padding: 10px; }
         .list-item { padding: 20px 15px; }
         .avatar { width: 45px; height: 45px; }
@@ -1673,23 +1666,13 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
 const ME = "<?php echo $_SESSION['user']; ?>";
 const CSRF_TOKEN = "<?php echo $_SESSION['csrf_token']; ?>";
 const LIGHTWEIGHT_MODE = <?php echo $lightweightMode ? 'true' : 'false'; ?>;
-<?php
-function mw_parse_bytes($s) {
-    $u = preg_replace('/[^bkmgtpezy]/i', '', $s); $s = preg_replace('/[^0-9\.]/', '', $s);
-    return $u ? round($s * pow(1024, stripos('bkmgtpezy', $u[0]))) : round($s);
-}
-$bytes_u = mw_parse_bytes(ini_get('upload_max_filesize')); $bytes_p = mw_parse_bytes(ini_get('post_max_size'));
-if ($bytes_u <= 0) $bytes_u = 1000 * 1024 * 1024 * 1024; if ($bytes_p <= 0) $bytes_p = 1000 * 1024 * 1024 * 1024;
-$js_upload_limit = min($bytes_u, $bytes_p); if ($js_upload_limit >= 1000 * 1024 * 1024 * 1024) $js_upload_limit = 20 * 1024 * 1024;
-?>
-const MAX_UPLOAD_SIZE = <?php echo $js_upload_limit; ?>;
-const MAX_UPLOAD_MB = Math.max(1, Math.round(MAX_UPLOAD_SIZE / (1024 * 1024)));
 let lastTyping = 0;
 let lastRead = 0;
 let mediaRec=null, audChunks=[], recMime='';
 let pendingFile = null;
 let currentAudio=null, currentBtn=null, updateInterval=null;
 let lastPollTime = null;
+window.isLongPress = false;
 let emojiPinned = false;
 const RTC_CFG = LIGHTWEIGHT_MODE ? {iceServers:[]} : {iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
 let pc=null, localStream=null, callState='idle', callPeer=null;
@@ -2103,8 +2086,10 @@ function notify(id, text, type) {
     let title = type=='dm'?id:(type=='public'?'Public Chat':(S.groups[id]?S.groups[id].name:(type=='channel'?'Channel':'Group')));
     S.notifs.unshift({id, type, text, title: title, time:new Date()});
     updateNotifUI();
-    let badge = type=='dm'?'badge-chats':(type=='channel'?'badge-channels':'badge-groups');
-    if(document.getElementById(badge)) document.getElementById(badge).style.display = 'block';
+    let targetTab = type=='dm'?'chats':(type=='channel'?'channels':'groups');
+    if(S.tab !== targetTab && document.getElementById('badge-' + targetTab)) {
+        document.getElementById('badge-' + targetTab).style.display = 'block';
+    }
 
     try {
         let ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -2174,14 +2159,26 @@ async function store(t,i,m){
         if((m.id && !h[idx].id) || (!m.pending && h[idx].pending)) {
             h[idx] = m;
             await save(t,i,h);
-            if(S.id==i && S.type==t) renderChat();
+            if(S.id==i && S.type==t) {
+                let el = document.getElementById('msg-' + m.timestamp);
+                if (el) el.replaceWith(createMsgNode(m, el.querySelector('.msg-sender') !== null, h));
+            }
         }
         return;
     }
     if(m.type.startsWith('wencrypt_')) return; // Don't store signals
     if(m.type=='react'){
         let tg=h.find(x=>x.timestamp==m.extra_data);
-        if(tg){ if(!tg.reacts)tg.reacts={}; tg.reacts[m.from_user]=m.message; await save(t,i,h); if(S.id==i && S.type==t) renderChat(); }
+        if(tg){ 
+            if(!tg.reacts)tg.reacts={}; 
+            if(!m.message) delete tg.reacts[m.from_user];
+            else tg.reacts[m.from_user]=m.message; 
+            await save(t,i,h); 
+            if(S.id==i && S.type==t) {
+                let el = document.getElementById('msg-' + m.extra_data);
+                if (el) el.replaceWith(createMsgNode(tg, el.querySelector('.msg-sender') !== null, h));
+            }
+        }
       return;
     }
     h.push(m); 
@@ -2200,7 +2197,14 @@ async function store(t,i,m){
 async function removeMsg(t,i,ts){
     let h = await get(t,i);
     let idx=h.findIndex(x=>x.timestamp==ts);
-    if(idx!=-1){ h.splice(idx,1); await save(t,i,h); if(S.id==i && S.type==t) renderChat(); }
+    if(idx!=-1){ 
+        h.splice(idx,1); 
+        await save(t,i,h); 
+        if(S.id==i && S.type==t) {
+            let el = document.getElementById('msg-' + ts);
+            if (el) el.remove();
+        }
+    }
 }
 
 function toggleEncryption(){
@@ -2459,7 +2463,7 @@ function renderDmItem(el, d, isUpdate) {
     let isActive = S.id == d.key && S.type == (d.type||'dm');
     if(!isUpdate) {
         el.onclick = () => openChat(d.type||'dm', d.key);
-        el.oncontextmenu = (e) => onChatListContext(e, 'dm', d.u);
+        el.oncontextmenu = (e) => onChatListContext(e, 'dm', d.key);
         el.innerHTML = `<div class="avatar"></div>
                         <div style="flex:1">
                             <div style="font-weight:bold;display:flex;align-items:center" class="chat-list-title"></div>
@@ -2697,7 +2701,7 @@ function createMsgNode(m, showSender, history){
     if(showSender) sender=`<div class="msg-sender" onclick="if(ME!='${m.from_user}'){openChat('dm','${m.from_user}');switchTab('chats');}">${m.from_user}</div>`;
 
     let txt;
-    if(m.type=='image') txt=`<img src="${m.message}" loading="lazy" onclick="openLightbox(this.src)" onload="scrollToBottom(false)">`;
+    if(m.type=='image') txt=`<img src="${m.message}" loading="lazy" onclick="if(!window.isLongPress)openLightbox(this.src)" onload="scrollToBottom(false)">`;
     else if(m.type=='video') txt=`<div class="vid-poster" id="vid-poster-${m.timestamp}" style="position:relative;max-width:100%;min-width:200px;height:150px;background:#000;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer"><div class="play-btn" style="width:48px;height:48px;font-size:24px;padding-left:4px">▶</div></div>`;
     else if(m.type=='audio') {
         let isVoice = !m.extra_data;
@@ -2748,7 +2752,7 @@ function createMsgNode(m, showSender, history){
     if(m.reacts) reacts=`<div class="reaction-bar">${Object.values(m.reacts).join('')}</div>`;
     let stat='';
     if(m.from_user==ME && S.type=='dm') stat = m.read ? '<span style="color:#4fc3f7;margin-left:3px">✓✓</span>' : '<span style="margin-left:3px">✓</span>';
-    if(m.pending) stat = '<span class="msg-pending-stat" style="color:#888;margin-left:3px">' + (m.progress !== undefined ? m.progress+'%' : '🕒') + '</span>';
+    if(m.pending) stat = '<span style="color:#888;margin-left:3px">🕒</span>';
 
     let reactDisplay = '';
     if (m.reacts) {
@@ -2776,6 +2780,8 @@ function createMsgNode(m, showSender, history){
     let touchTimer;
     div.addEventListener('touchstart', (e) => {
         touchTimer = setTimeout(() => {
+            window.isLongPress = true;
+            setTimeout(()=>window.isLongPress=false, 500);
             // Long press detected
             showContextMenu(e, 'message', m);
         }, 500); // Adjust timing as needed
@@ -2805,6 +2811,7 @@ function createMsgNode(m, showSender, history){
         let ph = div.querySelector(`#vid-poster-${m.timestamp}`);
         if(ph) {
             ph.onclick = async (e) => {
+                if(window.isLongPress) return;
                 e.stopPropagation();
                 ph.innerHTML = '<div class="rail-dot" style="background:#fff"></div>';
                 let v = document.createElement('video');
@@ -2850,6 +2857,7 @@ async function renderChat(){
             sep.innerHTML = `<span style="background:var(--panel);padding:4px 10px;border-radius:10px;border:1px solid var(--border)">${dateStr}</span>`;
             c.appendChild(sep);
             lastDate = dateStr;
+            last = null;
         }
         let show=(S.type=='public'||S.type=='group'||S.type=='channel') && m.from_user!=ME && m.from_user!=last;
         c.appendChild(createMsgNode(m, show, h));
@@ -2915,7 +2923,11 @@ async function send(){
         if(d.status === 'success') {
             let h = await get(S.type, S.id);
             let m = h.find(x => x.timestamp == ts && x.message == txt);
-            if(m) { delete m.pending; await save(S.type, S.id, h); renderChat(); }
+            if(m) { 
+                delete m.pending; await save(S.type, S.id, h); 
+                let el = document.getElementById('msg-' + ts);
+                if (el) el.replaceWith(createMsgNode(m, el.querySelector('.msg-sender') !== null, h));
+            }
         }
     } catch(e) { console.error(e); }
 }
@@ -2989,7 +3001,15 @@ async function ctxAction(act, arg) {
         else if(act=='reply') { S.reply=m.timestamp; document.getElementById('reply-ui').style.display='flex'; let snip=m.type=='text'?esc(m.message).substring(0,30):'['+m.type+']'; document.getElementById('reply-txt').innerHTML=`<div style="font-size:0.75rem;color:var(--accent);margin-bottom:2px">Replying to ${m.from_user}</div><div style="color:var(--text);opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${snip}</div>`; document.getElementById('del-btn').style.display='none'; document.getElementById('txt').focus(); }
         else if(act=='forward') promptModal("Forward", "Username:", u=>{ if(u) req('send',{message:m.message,type:m.type,extra:m.extra_data,to_user:u}); });
         else if(act=='copy') { if(m.type=='text') { navigator.clipboard.writeText(m.message); showToast('Copied to clipboard'); } }
-        else if(act=='pin') { let h=await get(S.type,S.id); let t=h.find(x=>x.timestamp==m.timestamp); if(t){t.pinned=!t.pinned; await save(S.type,S.id,h); renderChat();} }
+        else if(act=='pin') { 
+            let h=await get(S.type,S.id); 
+            let t=h.find(x=>x.timestamp==m.timestamp); 
+            if(t){
+                t.pinned=!t.pinned; await save(S.type,S.id,h); 
+                let el = document.getElementById('msg-' + m.timestamp);
+                if (el) el.replaceWith(createMsgNode(t, el.querySelector('.msg-sender') !== null, h));
+            } 
+        }
       else if(act=='details') alertModal("Details", `From: ${m.from_user}\nSent: ${new Date(m.timestamp*1000).toLocaleString()}`);
         else if(act=='delete') { if(m.from_user!=ME)return; S.reply=m.timestamp; await deleteMsg(); }
     } else if(c.type == 'chat_list') {
@@ -3049,7 +3069,7 @@ async function viewReactionUser(e, user) {
 }
 
 async function sendReact(ts,e){
-    let ld={message:e,type:'react',extra:ts};
+    let ld={message:(e||''),type:'react',extra:ts};
     if(S.type=='dm')ld.to_user=S.id; else if(S.type=='group'||S.type=='channel') ld.group_id=S.id; else if(S.type=='public') ld.group_id=-1;
     req('send', ld);
     let h = await get(S.type,S.id);
@@ -3059,7 +3079,8 @@ async function sendReact(ts,e){
         if(e===null) delete m.reacts[ME];
         else m.reacts[ME]=e; 
         await save(S.type,S.id,h); 
-        renderChat(); 
+        let el = document.getElementById('msg-' + ts);
+        if (el) el.replaceWith(createMsgNode(m, el.querySelector('.msg-sender') !== null, h));
     }
 }
 
@@ -3173,10 +3194,6 @@ async function uploadFile(inp){
 }
 
 async function processFile(f) {
-    if(f.size > MAX_UPLOAD_SIZE) {
-        alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`);
-        return;
-    }
     document.getElementById('preview-img').style.display = 'none';
     document.getElementById('preview-vid').style.display = 'none';
     document.getElementById('preview-aud').style.display = 'none';
@@ -3269,10 +3286,6 @@ function closePreview() {
 }
 
 async function sendFile(fileToSend) {
-    if(fileToSend.size > MAX_UPLOAD_SIZE) {
-        alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`);
-        return;
-    }
     startProg();
     let ts = Math.floor(Date.now()/1000);
     let replyId = S.reply;
@@ -3285,23 +3298,10 @@ async function sendFile(fileToSend) {
         if (fileToSend.type.startsWith('image/')) type = 'image';
         else if (fileToSend.type.startsWith('video/')) type = 'video';
         else if (fileToSend.type.startsWith('audio/')) type = 'audio';
-        await store(S.type,S.id,{from_user:ME,message:r.result,type:type,timestamp:ts,extra_data:fileToSend.name, reply_to_id:replyId, pending:true, progress: 0});
+        await store(S.type,S.id,{from_user:ME,message:r.result,type:type,timestamp:ts,extra_data:fileToSend.name, reply_to_id:replyId, pending:true});
         scrollToBottom(true);
     };
     r.readAsDataURL(fileToSend);
-    await new Promise((resolve) => {
-        let r = new FileReader();
-        r.onload = async () => {
-            let type = 'file';
-            if (fileToSend.type.startsWith('image/')) type = 'image';
-            else if (fileToSend.type.startsWith('video/')) type = 'video';
-            else if (fileToSend.type.startsWith('audio/')) type = 'audio';
-            await store(S.type,S.id,{from_user:ME,message:r.result,type:type,timestamp:ts,extra_data:fileToSend.name, reply_to_id:replyId, pending:true, progress: 0});
-            scrollToBottom(true);
-            resolve();
-        };
-        r.readAsDataURL(fileToSend);
-    });
 
     let fd = new FormData();
     fd.append('file', fileToSend);
@@ -3312,40 +3312,26 @@ async function sendFile(fileToSend) {
     else fd.append('group_id', -1);
 
     try {
-        let d = await new Promise((resolve, reject) => {
-            let xhr = new XMLHttpRequest();
-            xhr.open('POST', '?action=upload_msg');
-            xhr.setRequestHeader('X-CSRF-Token', CSRF_TOKEN);
-            
-            xhr.upload.onprogress = (e) => {
-                if (e.lengthComputable) {
-                    let pct = Math.round((e.loaded / e.total) * 100);
-                    let msgNode = document.getElementById('msg-' + ts);
-                    if(msgNode) {
-                        let statNode = msgNode.querySelector('.msg-pending-stat');
-                        if(statNode) statNode.innerText = pct + '%';
-                    }
-                }
-            };
-            
-            xhr.onload = () => {
-                if(xhr.status === 200) {
-                    try { resolve(JSON.parse(xhr.responseText)); } catch(err) { reject(err); }
-                } else reject(new Error('HTTP ' + xhr.status));
-            };
-            xhr.onerror = () => reject(new Error('Network Error'));
-            xhr.send(fd);
-        });
+        let res = await fetch('?action=upload_msg', { method:'POST', body:fd, headers:{'X-CSRF-Token': CSRF_TOKEN} });
+        let d = await res.json();
         endProg();
         if(d.status!='success') {
             alertModal('Error', d.message||'Upload failed');
             let h = await get(S.type, S.id);
             let idx = h.findIndex(x => x.timestamp == ts && x.extra_data == fileToSend.name);
-            if(idx!=-1) { h.splice(idx, 1); await save(S.type, S.id, h); renderChat(); }
+            if(idx!=-1) { 
+                h.splice(idx, 1); await save(S.type, S.id, h); 
+                let el = document.getElementById('msg-' + ts);
+                if (el) el.remove();
+            }
         } else {
             let h = await get(S.type, S.id);
             let m = h.find(x => x.timestamp == ts && x.extra_data == fileToSend.name);
-            if(m) { delete m.pending; delete m.progress; await save(S.type, S.id, h); renderChat(); }
+            if(m) { 
+                delete m.pending; delete m.progress; await save(S.type, S.id, h); 
+                let el = document.getElementById('msg-' + ts);
+                if (el) el.replaceWith(createMsgNode(m, el.querySelector('.msg-sender') !== null, h));
+            }
         }
     } catch(e) {
         endProg();
@@ -3353,13 +3339,16 @@ async function sendFile(fileToSend) {
         alertModal('Error', 'Upload failed');
         let h = await get(S.type, S.id);
         let idx = h.findIndex(x => x.timestamp == ts && x.extra_data == fileToSend.name);
-        if(idx!=-1) { h.splice(idx, 1); await save(S.type, S.id, h); renderChat(); }
+        if(idx!=-1) { 
+            h.splice(idx, 1); await save(S.type, S.id, h); 
+            let el = document.getElementById('msg-' + ts);
+            if (el) el.remove();
+        }
     }
 }
 
 async function handleAvUpload(inp) {
     let f = inp.files[0]; if(!f) return;
-    if(f.size > MAX_UPLOAD_SIZE) { alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`); return; }
     startProg();
     try {
         let img = await new Promise((res,rej)=>{let i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f);});
@@ -4111,7 +4100,6 @@ function createSticker() {
     inp.onchange = async e => {
         let f = e.target.files[0];
         if(!f) return;
-        if(f.size > MAX_UPLOAD_SIZE) { alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`); return; }
         startProg();
         try {
             let img = await new Promise((res,rej)=>{let i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f);});
@@ -4142,7 +4130,6 @@ function createGif() {
     inp.onchange = async e => {
         let f = e.target.files[0];
         if(!f) return;
-        if(f.size > MAX_UPLOAD_SIZE) { alertModal('Error', `File exceeds the ${MAX_UPLOAD_MB}MB limit.`); return; }
         startProg();
         if(f.type.startsWith('video/')) {
             let v = document.createElement('video');

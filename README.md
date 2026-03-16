@@ -76,9 +76,9 @@ Simply toggle the login box to "Register" and create a username and password.
 
 ## ⚙️ Configuration
 
-You can adjust upload limits at the top of `index.php`:
+You can adjust upload limits by modifying your server's `php.ini` or creating a `.user.ini` file in the same directory:
 
-```php
-ini_set('upload_max_filesize', '10M');
-ini_set('post_max_size', '10M');
+```ini
+upload_max_filesize = 50M
+post_max_size = 50M
 ```
