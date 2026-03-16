@@ -160,7 +160,7 @@ if ($action === 'icon') {
 if ($action === 'sw') {
     header('Content-Type: application/javascript');
     header('Cache-Control: public, max-age=3600');
-    echo "const CACHE='mw-v1';self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['index.php','?action=icon'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!='GET')return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request).then(r=>r||new Response('',{status:404}))))});self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cl=>{for(let c of cl){if(c.url&&'focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow('index.php');}));});";
+    echo "const CACHE='mw-v2';self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['index.php','?action=icon'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>{if(k!==CACHE)return caches.delete(k)}))).then(()=>self.clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!='GET')return;e.respondWith(fetch(e.request).then(r=>{let rc=r.clone();caches.open(CACHE).then(c=>c.put(e.request,rc));return r}).catch(()=>caches.match(e.request).then(r=>r||new Response('',{status:404}))))});self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cl=>{for(let c of cl){if(c.url&&'focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow('index.php');}));});";
     exit;
 }
 if ($action === 'ping') {
@@ -1913,8 +1913,12 @@ async function init(){
         setLang(curLang);
         renderLists();
         pollLoop();
-        window.addEventListener('online', () => setConn(false));
-        window.addEventListener('offline', () => setConn(false));
+        window.addEventListener('online', () => {
+            setConn(false, false);
+            if(pollTimer) clearTimeout(pollTimer);
+            pollLoop();
+        });
+        window.addEventListener('offline', () => setConn(false, true));
     } catch(e) { console.error("Init failed", e); alert("App failed to initialize: " + e.message); }
 }
 
@@ -1956,15 +1960,26 @@ function showToast(msg) {
 }
 
 // --- CORE ---
+let pollTimer = null;
 async function pollLoop() {
     await poll();
-    setTimeout(pollLoop, 2000);
+    if(pollTimer) clearTimeout(pollTimer);
+    pollTimer = setTimeout(pollLoop, navigator.onLine ? 2000 : 5000);
 }
 
-function setConn(s){
+function setConn(s, isError = false){
     let el = document.getElementById('conn-indicator');
-    if(s) el.classList.add('status-connected');
-    else el.classList.remove('status-connected');
+    if(s) {
+        el.classList.add('status-connected');
+        el.querySelector('.conn-text').innerHTML = 'Connecting<span class="conn-dots"></span>';
+    } else {
+        el.classList.remove('status-connected');
+        if (isError || !navigator.onLine) {
+            el.querySelector('.conn-text').innerHTML = 'Waiting for network<span class="conn-dots"></span>';
+        } else {
+            el.querySelector('.conn-text').innerHTML = 'Connecting<span class="conn-dots"></span>';
+        }
+    }
 }
 
 async function poll(){
@@ -1978,6 +1993,7 @@ async function poll(){
         if(Object.keys(S.groupCursors).length > 0) payload.group_cursors = S.groupCursors;
 
         let r=await req('poll', payload);
+        if(!r.ok) throw new Error("HTTP " + r.status);
         
         if(r.ok) { S.ackDms = []; S.groupCursors = {}; }
 
@@ -2063,7 +2079,7 @@ async function poll(){
              let av = (ou && ou.avatar) ? ou.avatar : (prof ? prof.avatar : '');
              if(av) document.getElementById('chat-av').style.backgroundImage=`url('${av}')`;
         }
-} catch(e){ console.error("Poll error:", e); setConn(false); }
+} catch(e){ console.error("Poll error:", e); setConn(false, true); }
 }
 
 function notify(id, text, type) {
