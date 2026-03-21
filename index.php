@@ -2169,9 +2169,11 @@ async function poll(){
                     m.type='text';
                 } 
             }
-            await store('dm',m.from_user,m);
-            let prev = m.type==='text' ? m.message : '['+m.type+']';
-            notify(m.from_user, prev, 'dm');
+            let isNew = await store('dm',m.from_user,m);
+            if(isNew) {
+                let prev = m.type==='text' ? m.message : '['+m.type+']';
+                notify(m.from_user, prev, 'dm');
+            }
             if(S.type=='dm' && S.id==m.from_user && document.hasFocus()) req('send', {to_user:m.from_user, type:'read', extra:m.timestamp});
         }
         S.groups={}; 
@@ -2186,14 +2188,16 @@ async function poll(){
             let g = S.groups[m.group_id];
             let type = (g && g.category === 'channel') ? 'channel' : 'group';
             if(m.type=='delete'){ await removeMsg(type,m.group_id,m.extra_data); continue; }
-            await store(type,m.group_id,m); 
-            let prev = m.type==='text' ? m.message : '['+m.type+']';
-            notify(m.group_id, prev, type); 
+            let isNew = await store(type,m.group_id,m); 
+            if(isNew) {
+                let prev = m.type==='text' ? m.message : '['+m.type+']';
+                notify(m.group_id, prev, type); 
+            }
         }
         for(let m of d.public_msgs){
             if(m.type=='delete'){ await removeMsg('public','global',m.extra_data); continue; }
-            await store('public','global',m);
-            notify('global', m.message, 'public');
+            let isNew = await store('public','global',m);
+            if(isNew) notify('global', m.message, 'public');
         }
         if(S.type=='public') document.getElementById('chat-sub').innerText = "Global Room (5m TTL) - " + d.online.length + " Online";
         else if(S.type=='dm' && d.typing && d.typing.includes(S.id)) document.getElementById('typing-ind').style.display='block'; else document.getElementById('typing-ind').style.display='none';
@@ -2238,6 +2242,12 @@ function notify(id, text, type) {
         if(navigator.serviceWorker&&navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(r=>r.showNotification(title,opts));
         else new Notification(title,opts);
     }
+}
+
+function clearNotifsForChat(type, id) {
+    let len = S.notifs.length;
+    S.notifs = S.notifs.filter(n => !(n.type === type && n.id == id));
+    if(S.notifs.length !== len) updateNotifUI();
 }
 
 function updateNotifUI() {
@@ -2294,9 +2304,9 @@ async function store(t,i,m){
                 if (el) el.replaceWith(createMsgNode(m, el.querySelector('.msg-sender') !== null, h));
             }
         }
-        return;
+        return false;
     }
-    if(m.type.startsWith('wencrypt_')) return; // Don't store signals
+    if(m.type.startsWith('wencrypt_')) return false; // Don't store signals
     if(m.type=='react'){
         let tg=h.find(x=>x.timestamp==m.extra_data);
         if(tg){ 
@@ -2309,7 +2319,7 @@ async function store(t,i,m){
                 if (el) el.replaceWith(createMsgNode(tg, el.querySelector('.msg-sender') !== null, h));
             }
         }
-      return;
+      return false;
     }
     h.push(m); 
     h.sort((a,b)=>a.timestamp-b.timestamp);
@@ -2323,6 +2333,7 @@ async function store(t,i,m){
             scrollToBottom(false);
         } else renderChat();
     }
+    return true;
 }
 async function removeMsg(t,i,ts){
     let h = await get(t,i);
@@ -2813,6 +2824,7 @@ async function openChat(t,i){
     document.getElementById('we-overlay').style.display='none';
     if(S.id!=i) lastRead=0;
     S.type=t; S.id=i;
+    clearNotifsForChat(t, i);
     renderLists();
     await renderChat(); 
     if(S.scroll[t+'_'+i]!==undefined) {
@@ -3899,6 +3911,7 @@ window.onfocus=async ()=>{
             req('send',{to_user:S.id,type:'read',extra:last.timestamp}); 
         }
     }
+    if(S.type && S.id) clearNotifsForChat(S.type, S.id);
 };
 
 // --- WEBRTC CALLING ---
