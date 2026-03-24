@@ -1050,6 +1050,24 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
     .msg.in { align-self:flex-start; background:var(--msg-in); border-top-left-radius:0; border:1px solid transparent; }
     .msg.out { align-self:flex-end; background:var(--msg-out); border-top-right-radius:0; }
     .msg img { max-width:100%; border-radius:4px; margin-top:5px; cursor:pointer; }
+    /* Multi-image grid layout (Telegram-style) */
+    .media-grid { display:grid; gap:2px; border-radius:8px; overflow:hidden; margin-top:4px; max-width:280px; }
+    .media-grid.count-1 { grid-template-columns:1fr; }
+    .media-grid.count-2 { grid-template-columns:1fr 1fr; }
+    .media-grid.count-3 { grid-template-columns:1fr 1fr; }
+    .media-grid.count-3 .media-grid-item:first-child { grid-column:span 2; aspect-ratio:2/1; }
+    .media-grid.count-4 { grid-template-columns:1fr 1fr; }
+    .media-grid.count-5up { grid-template-columns:1fr 1fr; }
+    .media-grid-item { position:relative; overflow:hidden; aspect-ratio:1; }
+    .media-grid-item img { width:100%; height:100%; object-fit:cover; cursor:pointer; display:block; }
+    .media-grid-more { position:absolute; inset:0; background:rgba(0,0,0,0.65); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.6rem; font-weight:700; cursor:pointer; }
+    /* Multi-attach preview bar */
+    .multi-attach-bar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); overflow-x:auto; scrollbar-width:none; }
+    .multi-attach-bar::-webkit-scrollbar { display:none; }
+    .multi-attach-thumb { position:relative; flex-shrink:0; width:68px; height:68px; border-radius:8px; overflow:hidden; border:2px solid var(--border); }
+    .multi-attach-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .multi-attach-thumb .rm-btn { position:absolute; top:2px; right:2px; width:18px; height:18px; background:rgba(0,0,0,0.75); color:#fff; border:none; border-radius:50%; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
+    .multi-attach-count { font-size:0.75rem; color:var(--text-muted,#aaa); white-space:nowrap; flex-shrink:0; }
     .file-att { background:rgba(0,0,0,0.2); padding:10px; border-radius:5px; display:flex; align-items:center; gap:10px; cursor:pointer; border:1px solid rgba(255,255,255,0.1); margin-top:5px; }
     .file-att:hover { background:rgba(0,0,0,0.3); }
     .msg-sender { font-size:0.75rem; font-weight:bold; color:var(--accent); margin-bottom:4px; cursor:pointer; }
@@ -1603,6 +1621,11 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
                 <button id="del-btn" style="display:none;font-size:0.8rem;color:#f55;margin-right:10px;background:none;border:none;cursor:pointer" onclick="deleteMsg()">Delete</button>
                     <span onclick="cancelReply()" style="cursor:pointer">&times;</span>
                 </div>
+                <div id="multi-attach-ui" class="multi-attach-bar" style="display:none">
+                    <div id="multi-attach-scroll" style="display:flex;gap:8px;align-items:center;flex:1;overflow-x:auto;scrollbar-width:none"></div>
+                    <span class="multi-attach-count" id="multi-attach-count"></span>
+                    <span onclick="cancelMultiAttach()" style="cursor:pointer;padding:5px;font-size:1.3rem;color:var(--text-muted,#aaa);flex-shrink:0">&times;</span>
+                </div>
                 <div class="reply-ctx" id="file-preview-ui" style="display:none;border-bottom:1px solid var(--border)">
                     <div style="display:flex;align-items:center;gap:10px;overflow:hidden;flex:1">
                         <svg viewBox="0 0 24 24" width="20" fill="var(--accent)"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
@@ -1680,6 +1703,7 @@ let lastTyping = 0;
 let lastRead = 0;
 let mediaRec=null, audChunks=[], recMime='';
 let pendingFile = null;
+let pendingImages = [];
 let currentAudio=null, currentBtn=null, updateInterval=null;
 let lastPollTime = null;
 window.isLongPress = false;
@@ -2905,6 +2929,7 @@ async function renderLists(){
         let pubMsg = t.start_chat;
         if(pubLast && pubLast.message) {
              if(pubLast.type === 'image') pubMsg = '📷 Image';
+             if(pubLast.type === 'media_group') pubMsg = '🖼️ Photos';
              else if(pubLast.type === 'audio') pubMsg = '🎤 Voice Message';
              else if(pubLast.type === 'file') pubMsg = '📁 File';
              else if(pubLast.type === 'sticker') pubMsg = '💟 Sticker';
@@ -2924,6 +2949,7 @@ async function renderLists(){
                 let last = t.start_chat;
                 if(lastMsg) {
                     if(lastMsg.type === 'image') last = '📷 Image';
+                    if(lastMsg.type === 'media_group') last = '🖼️ Photos';
                     else if(lastMsg.type === 'video') last = '📹 Video';
                     else if(lastMsg.type === 'audio') last = '🎤 Voice Message';
                     else if(lastMsg.type === 'file') last = '📁 File';
@@ -3056,6 +3082,24 @@ function createMsgNode(m, showSender, history){
     let safeHtmlMsg = esc(m.message);
     let txt;
     if(m.type=='image') txt=`<img src="${safeHtmlMsg}" loading="lazy" onclick="if(!window.isLongPress)openLightbox(this.src)" onload="scrollToBottom(false)">`;
+    else if(m.type=='media_group') {
+        let images=[];
+        try { images=JSON.parse(m.message); } catch(e){}
+        let count = images.length;
+        let gridCls = count<=1?'count-1':count===2?'count-2':count===3?'count-3':count===4?'count-4':'count-5up';
+        let maxShow = count<=4 ? count : 4;
+        let imgHtml='';
+        for(let gi=0;gi<maxShow;gi++){
+            let gsrc=esc(images[gi]);
+            if(gi<maxShow-1 || count<=maxShow){
+                imgHtml+=`<div class="media-grid-item"><img src="${gsrc}" loading="lazy" onclick="if(!window.isLongPress)openLightbox(this.src)" onload="scrollToBottom(false)"></div>`;
+            } else {
+                let extra=count-maxShow;
+                imgHtml+=`<div class="media-grid-item"><img src="${gsrc}" loading="lazy" style="filter:brightness(0.35)"><div class="media-grid-more">+${extra+1}</div></div>`;
+            }
+        }
+        txt=`<div class="media-grid ${gridCls}">${imgHtml}</div>`;
+    }
     else if(m.type=='video') txt=`<div class="vid-poster" id="vid-poster-${m.timestamp}" style="position:relative;max-width:100%;min-width:200px;height:150px;background:#000;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer"><div class="play-btn" style="width:48px;height:48px;font-size:24px;padding-left:4px">▶</div></div>`;
     else if(m.type=='audio') {
         let isVoice = !m.extra_data;
@@ -3100,7 +3144,7 @@ function createMsgNode(m, showSender, history){
         let p=history.find(x=>x.timestamp==m.reply_to_id);
         if(p) {
 
-            let rTxt = p.type == 'image' ? '📷 Image' : (p.type == 'audio' ? '🎤 Audio' : (p.type == 'file' ? '📁 File' : (p.type == 'sticker' ? '💟 Sticker' : (p.type == 'gif' ? '🎞️ GIF' : esc(p.message).substring(0, 30) + '...'))));
+            let rTxt = p.type == 'image' ? '📷 Image' : (p.type == 'media_group' ? '🖼️ Photos' : (p.type == 'audio' ? '🎤 Audio' : (p.type == 'file' ? '📁 File' : (p.type == 'sticker' ? '💟 Sticker' : (p.type == 'gif' ? '🎞️ GIF' : esc(p.message).substring(0, 30) + '...')))));
             rep=`<div style="font-size:0.8em;border-left:2px solid var(--accent);padding-left:4px;margin-bottom:4px;opacity:0.7;cursor:pointer" onclick="scrollToMsg(${m.reply_to_id})">Reply to <b>${esc(p.from_user)}</b>: ${rTxt}</div>`;
         }
     }
@@ -3236,7 +3280,9 @@ function closeChat() {
 async function send(){
     let inputEl = document.getElementById('txt');
     let txt=inputEl.value.trim();
-    if(pendingFile && document.getElementById('file-preview-ui').style.display !== 'none') {
+    if(pendingImages.length > 0 && document.getElementById('multi-attach-ui').style.display !== 'none') {
+        sendMediaGroup();
+    } else if(pendingFile && document.getElementById('file-preview-ui').style.display !== 'none') {
         sendFile(pendingFile);
         cancelFile();
     }
@@ -3522,9 +3568,9 @@ function handleAttClick(e) {
 }
 function pickMedia(type) {
     let f = document.getElementById('file');
-    f.value = ''; f.removeAttribute('capture'); f.removeAttribute('accept');
+    f.value = ''; f.removeAttribute('capture'); f.removeAttribute('accept'); f.removeAttribute('multiple');
     if(type === 'camera') { f.accept = 'image/*'; f.setAttribute('capture', 'environment'); }
-    else if(type === 'gallery') { f.accept = 'image/*'; }
+    else if(type === 'gallery') { f.accept = 'image/*'; f.multiple = true; }
     f.click();
     document.getElementById('att-menu').style.display='none';
 }
@@ -3557,9 +3603,15 @@ function sendLocation() {
 }
 
 async function uploadFile(inp){
-    let f=inp.files[0]; if(!f)return;
-    inp.value = ''; // Reset
-    processFile(f);
+    let files = Array.from(inp.files);
+    if(!files.length) return;
+    inp.value = '';
+    let imageFiles = files.filter(f => f.type.startsWith('image/') && f.type !== 'image/gif');
+    if(files.length > 1 && imageFiles.length > 1) {
+        processMultipleImages(imageFiles);
+    } else {
+        processFile(files[0]);
+    }
 }
 
 async function processFile(f) {
@@ -3652,6 +3704,135 @@ function closePreview() {
     img.src = ''; vid.src = ''; aud.src = '';
     vid.pause(); aud.pause();
     pendingFile = null;
+}
+
+async function processMultipleImages(files) {
+    startProg();
+    pendingImages = [];
+    for(let f of files) {
+        try {
+            let img = await new Promise((res,rej)=>{let i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f);});
+            let cvs = document.createElement('canvas');
+            let w=img.width, h=img.height, max=1600;
+            if(w>max||h>max){ if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;} }
+            cvs.width=w; cvs.height=h;
+            cvs.getContext('2d').drawImage(img,0,0,w,h);
+            let blob = await new Promise(r=>cvs.toBlob(r,'image/jpeg',0.8));
+            let name = f.name;
+            if(!name||name==='image.png') name='image_'+Date.now()+'.jpg';
+            else if(name.toLowerCase().endsWith('.png')) name=name.replace(/\.png$/i,'.jpg');
+            let file = new File([blob], name, {type:'image/jpeg'});
+            let src = URL.createObjectURL(file);
+            pendingImages.push({file, src, name});
+        } catch(e){ console.warn('processMultipleImages: failed for file', e); }
+    }
+    endProg();
+    if(pendingImages.length === 0) return;
+    if(pendingImages.length === 1) {
+        let item = pendingImages[0];
+        pendingImages = [];
+        let pvImg = document.getElementById('preview-img');
+        pvImg.src = item.src;
+        pvImg.style.display = 'block';
+        pendingFile = item.file;
+        document.getElementById('preview-info').innerText = (item.file.size/1024).toFixed(1)+' KB';
+        document.getElementById('media-preview').style.display = 'flex';
+        return;
+    }
+    renderMultiAttachPreview();
+}
+
+function renderMultiAttachPreview() {
+    let container = document.getElementById('multi-attach-scroll');
+    container.innerHTML = '';
+    pendingImages.forEach((item, i) => {
+        let thumb = document.createElement('div');
+        thumb.className = 'multi-attach-thumb';
+        let img = document.createElement('img');
+        img.src = item.src;
+        let btn = document.createElement('button');
+        btn.className = 'rm-btn';
+        btn.innerHTML = '&times;';
+        btn.onclick = () => removeMultiAttachImage(i);
+        thumb.appendChild(img);
+        thumb.appendChild(btn);
+        container.appendChild(thumb);
+    });
+    let countEl = document.getElementById('multi-attach-count');
+    countEl.innerText = pendingImages.length + ' photo' + (pendingImages.length > 1 ? 's' : '');
+    document.getElementById('multi-attach-ui').style.display = 'flex';
+    toggleMainBtn();
+}
+
+function removeMultiAttachImage(i) {
+    URL.revokeObjectURL(pendingImages[i].src);
+    pendingImages.splice(i, 1);
+    if(pendingImages.length === 0) {
+        cancelMultiAttach();
+    } else {
+        renderMultiAttachPreview();
+    }
+}
+
+function cancelMultiAttach() {
+    pendingImages.forEach(item => URL.revokeObjectURL(item.src));
+    pendingImages = [];
+    document.getElementById('multi-attach-ui').style.display = 'none';
+    document.getElementById('multi-attach-scroll').innerHTML = '';
+    toggleMainBtn();
+}
+
+async function sendMediaGroup() {
+    if(pendingImages.length === 0) return;
+    let images = [...pendingImages];
+    cancelMultiAttach();
+    startProg();
+    let ts = Date.now();
+    let replyId = S.reply;
+    cancelReply();
+
+    let dataUrls = [];
+    let names = [];
+    for(let item of images) {
+        let dataUrl = await new Promise(r => { let rd = new FileReader(); rd.onload = () => r(rd.result); rd.readAsDataURL(item.file); });
+        dataUrls.push(dataUrl);
+        names.push(item.name);
+    }
+
+    let msgData = JSON.stringify(dataUrls);
+    let extraData = JSON.stringify(names);
+
+    let msgObj = {from_user:ME, message:msgData, type:'media_group', timestamp:ts, reply_to_id:replyId, extra_data:extraData, pending:true, progress:0};
+    await store(S.type, S.id, msgObj);
+    scrollToBottom(true);
+
+    let load = {message:msgData, type:'media_group', extra:extraData, reply_to:replyId, timestamp:ts};
+    if(S.type=='dm') load.to_user=S.id;
+    else if(S.type=='group'||S.type=='channel') load.group_id=S.id;
+    else load.group_id=-1;
+
+    if(S.e2ee[S.id] && (S.type=='dm'||S.type=='group')) {
+        try {
+            let innerPayload = JSON.stringify({_mw_enc:true, type:'media_group', msg:msgData, extra:extraData});
+            let e = await enc(S.type, S.id, innerPayload);
+            load.message=e.c; load.extra=e.extra; load.type='enc';
+        } catch(e){ console.error('Encryption failed', e); }
+    }
+
+    try {
+        let r = await req('send', load);
+        let d = await r.json();
+        if(d.status==='success') {
+            let h = await get(S.type, S.id);
+            let m = h.find(x => x.timestamp==ts && x.type=='media_group');
+            if(m && m.pending) {
+                delete m.pending; delete m.progress; await save(S.type, S.id, h);
+                let el = document.getElementById('msg-'+ts);
+                if(el) el.replaceWith(createMsgNode(m, el.querySelector('.msg-sender')!==null, h));
+            }
+        }
+    } catch(e){ console.error('sendMediaGroup failed', e); }
+    endProg();
 }
 
 async function sendFile(fileToSend) {
@@ -4126,15 +4307,17 @@ function formatTime(s) {
 
 function handleMainBtn() {
     let txt = document.getElementById('txt').value.trim();
-    if (txt || (pendingFile && document.getElementById('file-preview-ui').style.display !== 'none')) send();
+    let hasMulti = pendingImages.length > 0 && document.getElementById('multi-attach-ui').style.display !== 'none';
+    if (txt || hasMulti || (pendingFile && document.getElementById('file-preview-ui').style.display !== 'none')) send();
     else startRec();
 }
 
 function toggleMainBtn() {
     let hasText = document.getElementById('txt').value.trim().length > 0;
     let hasFile = pendingFile !== null && document.getElementById('file-preview-ui').style.display !== 'none';
-    document.getElementById('icon-mic').style.display = (hasText || hasFile) ? 'none' : 'block';
-    document.getElementById('icon-send').style.display = (hasText || hasFile) ? 'block' : 'none';
+    let hasMulti = pendingImages.length > 0 && document.getElementById('multi-attach-ui').style.display !== 'none';
+    document.getElementById('icon-mic').style.display = (hasText || hasFile || hasMulti) ? 'none' : 'block';
+    document.getElementById('icon-send').style.display = (hasText || hasFile || hasMulti) ? 'block' : 'none';
 }
 
 document.getElementById('txt').oninput=function(){
