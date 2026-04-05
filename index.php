@@ -1648,8 +1648,14 @@ Promise.all([
     #selection-bar { display:none; width:100%; height:100%; position:absolute; top:0; left:0; background:var(--panel); z-index:101; align-items:center; padding:0 20px; box-sizing:border-box; }
     .msg { user-select: none; -webkit-user-select: none; }
     .msg.selected { user-select: text; -webkit-user-select: text; background: rgba(168, 85, 247, 0.2) !important; border: 1px solid var(--accent); }
-    .msg-menu-icon { display: inline-block; padding: 0 4px; cursor: pointer; color: inherit; opacity: 0.7; margin-left: 5px; font-weight: bold; }
-    .msg-menu-icon:hover { opacity: 1; }
+    .msg-menu-icon { position: absolute; top: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); opacity: 0; transition: 0.2s; border-radius: 50%; font-weight: bold; font-size: 1.1rem; user-select: none; }
+    .msg:hover .msg-menu-icon { opacity: 0.5; }
+    .msg-menu-icon:hover { opacity: 1 !important; background: var(--hover-overlay); }
+    .msg.selected .msg-menu-icon { opacity: 0 !important; pointer-events: none; }
+    
+    /* Position the 3-dots outside the message bubble */
+    .msg.in .msg-menu-icon { right: -28px; }
+    .msg.out .msg-menu-icon { left: -28px; }
     
     .btn-icon { background:none; border:none; color:#888; cursor:pointer; display:flex; align-items:center; justify-content:center; border-radius:50%; transition:0.2s; width:40px; height:40px; padding:0; position:relative; flex-shrink:0; user-select:none; }
     @media (hover: hover) { .btn-icon:hover { color:#fff; background:rgba(255,255,255,0.1); } }
@@ -1819,9 +1825,7 @@ Promise.all([
         .messages { padding: 10px; }
         .desktop-only { display: none !important; }
         .mobile-only { display: block !important; }
-        .ctx-item { padding: 16px 24px; font-size: 1.05rem; }
-        .ctx-reactions { padding: 20px 10px; gap: 15px; justify-content: center; }
-        .ctx-reaction { font-size: 1.8rem; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 50%; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; }
+        .msg-menu-icon { opacity: 0.6; }
     }
     @media (min-width: 851px) { .back-btn { display:none; } .mobile-only { display: none !important; } }
 
@@ -2270,7 +2274,6 @@ let pendingFile = null;
 let pendingImages = [];
 let currentAudio=null, currentBtn=null, updateInterval=null;
 let lastPollTime = null;
-window.isLongPress = false;
 let emojiPinned = false;
 const RTC_CFG = LIGHTWEIGHT_MODE ? {iceServers:[]} : {iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
 let pc=null, localStream=null, callState='idle', callPeer=null;
@@ -3683,7 +3686,7 @@ function createMsgNode(m, showSender, history){
 
     let safeHtmlMsg = esc(m.message);
     let txt;
-    if(m.type=='image') txt=`<img src="${safeHtmlMsg}" loading="lazy" onclick="if(!window.isLongPress)openLightbox(this.src)" onload="scrollToBottom(false)">`;
+    if(m.type=='image') txt=`<img src="${safeHtmlMsg}" loading="lazy" onclick="openLightbox(this.src)" onload="scrollToBottom(false)">`;
     else if(m.type=='media_group') {
         let images=[];
         try { images=JSON.parse(m.message); } catch(e){}
@@ -3694,7 +3697,7 @@ function createMsgNode(m, showSender, history){
         for(let gi=0;gi<maxShow;gi++){
             let gsrc=esc(images[gi]);
             if(gi<maxShow-1 || count<=maxShow){
-                imgHtml+=`<div class="media-grid-item"><img src="${gsrc}" loading="lazy" onclick="if(!window.isLongPress)openLightbox(this.src)" onload="scrollToBottom(false)"></div>`;
+                imgHtml+=`<div class="media-grid-item"><img src="${gsrc}" loading="lazy" onclick="openLightbox(this.src)" onload="scrollToBottom(false)"></div>`;
             } else {
                 let extra=count-maxShow;
                 imgHtml+=`<div class="media-grid-item"><img src="${gsrc}" loading="lazy" style="filter:brightness(0.35)"><div class="media-grid-more">+${extra+1}</div></div>`;
@@ -3774,36 +3777,27 @@ function createMsgNode(m, showSender, history){
 
     let editedHtml = m.edited ? '<span style="font-size:0.65rem;font-style:italic;margin-right:4px">edited</span>' : '';
     let menuIcon = `<div class="msg-menu-icon" onclick="openMsgMenu(event, ${m.timestamp})">⋮</div>`;
-    div.innerHTML=`${sender}${rep}${txt}<div class="msg-meta">${editedHtml}${new Date(m.timestamp > 9999999999 ? m.timestamp : m.timestamp*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} ${stat}${menuIcon}</div>${reactDisplay}`;
+    div.innerHTML=`${sender}${rep}${txt}<div class="msg-meta">${editedHtml}${new Date(m.timestamp > 9999999999 ? m.timestamp : m.timestamp*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})} ${stat}</div>${reactDisplay}${menuIcon}`;
     
-    div.oncontextmenu=(e)=>{
-        e.preventDefault();
-        showContextMenu(e, 'message', m);
-    };    
     let touchTimer;
     div.addEventListener('touchstart', (e) => {
         if(e.target.closest('.msg-menu-icon')) return;
         touchTimer = setTimeout(() => {
-            window.isLongPress = true;
-            setTimeout(()=>window.isLongPress=false, 500);
             toggleSelection(m.timestamp);
-        }, 500); // Adjust timing as needed
+        }, 500); 
     });
+    div.addEventListener('touchend', () => clearTimeout(touchTimer));
+    div.addEventListener('touchcancel', () => clearTimeout(touchTimer));
+    div.addEventListener('touchmove', () => clearTimeout(touchTimer));
 
-    div.addEventListener('touchend', (e) => {
+    div.oncontextmenu=(e)=>{
+        e.preventDefault();
         clearTimeout(touchTimer);
-    });
-
-    div.addEventListener('touchcancel', (e) => {
-        clearTimeout(touchTimer);
-    });
-
-    div.addEventListener('touchmove', (e) => {
-        clearTimeout(touchTimer);
-    });
+        if(selectedMsgs.size > 0) return;
+        showContextMenu(e, 'message', m);
+    };
 
     div.onclick=(e)=>{
-        if (touchTimer) clearTimeout(touchTimer);
         if(selectedMsgs.size > 0) {
             if(!e.target.closest('.msg-menu-icon')) {
                 toggleSelection(m.timestamp);
@@ -3816,7 +3810,7 @@ function createMsgNode(m, showSender, history){
         let ph = div.querySelector(`#vid-poster-${m.timestamp}`);
         if(ph) {
             ph.onclick = async (e) => {
-                if(window.isLongPress) return;
+                if(selectedMsgs.size > 0) return;
                 e.stopPropagation();
                 ph.innerHTML = '<div class="rail-dot" style="background:#fff"></div>';
                 let v = document.createElement('video');
@@ -5136,6 +5130,168 @@ window.onkeydown = (e) => {
         else if(document.getElementById('main-view').classList.contains('active')) closeChat();
     }
 };
+
+let isDraggingToSelect = false;
+let dragStartTs = null;
+let lastHoveredTs = null;
+let hasDragged = false;
+let dragStartX = 0, dragStartY = 0;
+let dragInitialSelection = new Set();
+let currentMouseX = 0, currentMouseY = 0;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const msgsContainer = document.getElementById('msgs');
+    if (!msgsContainer) return;
+    
+    msgsContainer.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; 
+        if (e.target.closest('.msg-menu-icon')) return;
+        
+        let msgEl = e.target.closest('.msg');
+        if (msgEl && msgEl.classList.contains('selected')) return;
+        
+        if (!msgEl) {
+            let msgs = Array.from(document.querySelectorAll('.msg'));
+            let closest = null;
+            let minDist = Infinity;
+            msgs.forEach(m => {
+                let rect = m.getBoundingClientRect();
+                let dist = Math.abs(e.clientY - (rect.top + rect.height/2));
+                if (dist < minDist) {
+                    minDist = dist;
+                    closest = m;
+                }
+            });
+            msgEl = closest;
+        }
+        
+        if (msgEl) {
+            isDraggingToSelect = true;
+            hasDragged = false;
+            dragStartTs = parseInt(msgEl.id.split('-')[1]);
+            lastHoveredTs = dragStartTs;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragInitialSelection = new Set(selectedMsgs);
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        currentMouseX = e.clientX;
+        currentMouseY = e.clientY;
+        
+        if (!isDraggingToSelect) return;
+        
+        if (!hasDragged) {
+            if (Math.abs(e.clientX - dragStartX) > 5 || Math.abs(e.clientY - dragStartY) > 5) {
+                hasDragged = true;
+                updateDragSelection(dragStartTs, dragStartTs);
+            } else {
+                return;
+            }
+        }
+        
+        let el = document.elementFromPoint(e.clientX, e.clientY);
+        let msgEl = el ? el.closest('.msg') : null;
+        
+        if (!msgEl) {
+            let msgs = Array.from(document.querySelectorAll('.msg'));
+            let closest = null;
+            let minDist = Infinity;
+            msgs.forEach(m => {
+                let rect = m.getBoundingClientRect();
+                let dist = Math.abs(currentMouseY - (rect.top + rect.height/2));
+                if (dist < minDist) {
+                    minDist = dist;
+                    closest = m;
+                }
+            });
+            msgEl = closest;
+        }
+
+        if (msgEl) {
+            let ts = parseInt(msgEl.id.split('-')[1]);
+            if (ts !== lastHoveredTs) {
+                updateDragSelection(dragStartTs, ts);
+                lastHoveredTs = ts;
+            }
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDraggingToSelect) {
+            isDraggingToSelect = false;
+        }
+    });
+
+    setInterval(() => {
+        if (!isDraggingToSelect || !hasDragged) return;
+        let c = document.getElementById('msgs');
+        if (!c) return;
+        let rect = c.getBoundingClientRect();
+        let scrollSpeed = 0;
+        if (currentMouseY < rect.top + 50) scrollSpeed = -15;
+        else if (currentMouseY > rect.bottom - 50) scrollSpeed = 15;
+        
+        if (scrollSpeed !== 0) {
+            c.scrollTop += scrollSpeed;
+            
+            let el = document.elementFromPoint(currentMouseX, currentMouseY);
+            let msgEl = el ? el.closest('.msg') : null;
+            if (!msgEl) {
+                let msgs = Array.from(document.querySelectorAll('.msg'));
+                let closest = null;
+                let minDist = Infinity;
+                msgs.forEach(m => {
+                    let mrect = m.getBoundingClientRect();
+                    let dist = Math.abs(currentMouseY - (mrect.top + mrect.height/2));
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closest = m;
+                    }
+                });
+                msgEl = closest;
+            }
+
+            if (msgEl) {
+                let ts = parseInt(msgEl.id.split('-')[1]);
+                if (ts !== lastHoveredTs) {
+                    updateDragSelection(dragStartTs, ts);
+                    lastHoveredTs = ts;
+                }
+            }
+        }
+    }, 30);
+});
+
+function updateDragSelection(startTs, endTs) {
+    let msgs = Array.from(document.querySelectorAll('.msg'));
+    let startIdx = msgs.findIndex(m => m.id === 'msg-' + startTs);
+    let endIdx = msgs.findIndex(m => m.id === 'msg-' + endTs);
+    if (startIdx === -1 || endIdx === -1) return;
+    
+    let min = Math.min(startIdx, endIdx);
+    let max = Math.max(startIdx, endIdx);
+    
+    let newSelection = new Set(dragInitialSelection);
+    for (let i = min; i <= max; i++) {
+        let ts = parseInt(msgs[i].id.split('-')[1]);
+        newSelection.add(ts);
+    }
+    
+    document.querySelectorAll('.msg').forEach(el => {
+        let ts = parseInt(el.id.split('-')[1]);
+        if (newSelection.has(ts)) {
+            if (!selectedMsgs.has(ts)) el.classList.add('selected');
+        } else {
+            if (selectedMsgs.has(ts)) el.classList.remove('selected');
+        }
+    });
+    
+    selectedMsgs = newSelection;
+    updateSelectionBar();
+}
+
 window.onfocus=async ()=>{ 
     if(S.type=='dm'&&S.id) {
         let h=await get('dm',S.id); 
