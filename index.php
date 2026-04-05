@@ -51,6 +51,16 @@ if ($action === 'sw') {
 ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_samesite', 'Strict');
 ini_set('session.use_strict_mode', 1);
+ini_set('session.cookie_lifetime', 31536000);
+ini_set('session.gc_maxlifetime', 31536000);
+
+$sessionPath = __DIR__ . '/sessions';
+if (!is_dir($sessionPath)) {
+    @mkdir($sessionPath, 0755, true);
+    @file_put_contents($sessionPath . '/.htaccess', "Require all denied\nDeny from all\n");
+}
+ini_set('session.save_path', $sessionPath);
+
 if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
     ini_set('session.cookie_secure', 1);
 }
@@ -376,7 +386,8 @@ if (isset($_SESSION['admin']) && !empty($adminUser)) {
         exit;
     }
     if ($action === 'admin_logout') {
-        session_destroy();
+        unset($_SESSION['admin']);
+        session_regenerate_id(true);
         header("Location: index.php");
         exit;
     }
@@ -771,7 +782,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if ($action === 'logout') { session_destroy(); header("Location: index.php"); exit; }
+if ($action === 'logout') {
+    unset($_SESSION['user']);
+    unset($_SESSION['uid']);
+    unset($_SESSION['chat_route']);
+    unset($_SESSION['admin']);
+    session_regenerate_id(true);
+    header("Location: index.php");
+    exit;
+}
 
 // -------------------------------------------------------------------------
 // FRONTEND
