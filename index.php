@@ -1,4 +1,12 @@
 <?php
+// -------------------------------------------------------------------------
+// DISGUISE CONFIGURATION
+// -------------------------------------------------------------------------
+$config_logo_name = 'moreweb';
+$config_magic_phrase = 'سلام بذار بیام داخل مشتی';
+$config_pin = '99078';
+$show_splash = ($config_logo_name === 'moreweb');
+
 // LIGHTWEIGHT MODE: set to true to disable the Observatory and all external resource loading
 $lightweightMode = true;
 
@@ -70,7 +78,8 @@ try {
             avatar TEXT, 
             joined_at INTEGER,
             last_seen INTEGER
-            , public_key TEXT
+            , public_key TEXT,
+            chat_route TEXT
         )");
 
         $db->exec("CREATE TABLE IF NOT EXISTS groups (
@@ -110,6 +119,7 @@ try {
         if (!in_array('typing_to', $cols)) $db->exec("ALTER TABLE users ADD COLUMN typing_to TEXT");
         if (!in_array('typing_at', $cols)) $db->exec("ALTER TABLE users ADD COLUMN typing_at INTEGER");
         if (!in_array('bio', $cols)) $db->exec("ALTER TABLE users ADD COLUMN bio TEXT");
+        if (!in_array('chat_route', $cols)) $db->exec("ALTER TABLE users ADD COLUMN chat_route TEXT");
 
         $db->exec("PRAGMA user_version = 1");
         $ver = 1;
@@ -157,6 +167,88 @@ try {
 // 2. BACKEND API
 // -------------------------------------------------------------------------
 $action = $_GET['action'] ?? '';
+
+$query = isset($_GET['q']) ? trim($_GET['q']) : '';
+$isAjax = isset($_GET['ajax']) && $_GET['ajax'] === '1';
+
+if ($query !== '') {
+    if ($query === $config_magic_phrase) {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'pin_required']);
+            exit;
+        }
+    }
+
+    $url = "https://search.bertina.ir/search?q=" . urlencode($query);
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Rsc: 1", 
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "Accept: */*",
+        "Sec-Fetch-Site: same-origin",
+        "Sec-Fetch-Mode: cors",
+        "Sec-Fetch-Dest: empty"
+    ]);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    $results = null;
+    $error = null;
+    if ($httpCode === 200 && $response) {
+        $findSearchResults = function($data) use (&$findSearchResults) {
+            if (is_array($data)) {
+                if (isset($data['searchResults']) && isset($data['searchResults']['results'])) return $data['searchResults'];
+                foreach ($data as $value) {
+                    $res = $findSearchResults($value);
+                    if ($res !== null) return $res;
+                }
+            }
+            return null;
+        };
+        $lines = explode("\n", $response);
+        foreach ($lines as $line) {
+            $firstColon = strpos($line, ':');
+            if ($firstColon !== false) {
+                $jsonString = substr($line, $firstColon + 1);
+                $decoded = json_decode($jsonString, true);
+                if ($decoded) {
+                    $found = $findSearchResults($decoded);
+                    if ($found) {
+                        $results = $found['results'];
+                        break;
+                    }
+                }
+            }
+        }
+        if ($results === null) $error = "No results found.";
+    } else {
+        $error = "Failed to fetch results from the server.";
+    }
+
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode(['results' => $results, 'error' => $error]);
+        exit;
+    }
+}
+
+if ($action === 'verify_pin') {
+    header('Content-Type: application/json');
+    $pin = $_GET['pin'] ?? '';
+    if ($pin === $config_pin) {
+        $_SESSION['unlocked'] = true;
+        echo json_encode(['status' => 'success']);
+    } else {
+        echo json_encode(['status' => 'error']);
+    }
+    exit;
+}
 
 if ($action === 'manifest') {
     header('Content-Type: application/manifest+json');
@@ -312,14 +404,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$user]);
         if ($stmt->fetch()) { echo json_encode(['status'=>'error','message'=>'Username taken']); exit; }
 
+        $chatRoute = bin2hex(random_bytes(8));
         $pass = password_hash($input['password'], PASSWORD_DEFAULT);
         try {
-            $stmt = $db->prepare("INSERT INTO users (username, password, joined_at, last_seen) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$user, $pass, time(), time()]);
+            $stmt = $db->prepare("INSERT INTO users (username, password, joined_at, last_seen, chat_route) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$user, $pass, time(), time(), $chatRoute]);
             session_regenerate_id(true);
             $_SESSION['user'] = $user;
             $_SESSION['uid'] = $db->lastInsertId();
-            echo json_encode(['status' => 'success']);
+            $_SESSION['chat_route'] = $chatRoute;
+            echo json_encode(['status' => 'success', 'route' => $chatRoute]);
         } catch (PDOException $e) { echo json_encode(['status' => 'error', 'message' => 'Registration failed']); }
         exit;
     }
@@ -330,31 +424,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['status' => 'success']);
             exit;
         }
-        $stmt = $db->prepare("SELECT id, username, password FROM users WHERE lower(username) = lower(?)");
+        $stmt = $db->prepare("SELECT id, username, password, chat_route FROM users WHERE lower(username) = lower(?)");
         $stmt->execute([$input['username']]);
         $row = $stmt->fetch();
         if ($row && password_verify($input['password'], $row['password'])) {
             session_regenerate_id(true);
             $_SESSION['user'] = $row['username'];
             $_SESSION['uid'] = $row['id'];
+            if (empty($row['chat_route'])) {
+                $row['chat_route'] = bin2hex(random_bytes(8));
+                $db->prepare("UPDATE users SET chat_route = ? WHERE id = ?")->execute([$row['chat_route'], $row['id']]);
+            }
+            $_SESSION['chat_route'] = $row['chat_route'];
             $token = bin2hex(random_bytes(32));
             $db->prepare("INSERT INTO auth_tokens (token, user_id, expires_at) VALUES (?, ?, ?)")->execute([$token, $row['id'], time() + 2592000]);
-            echo json_encode(['status' => 'success', 'token' => $token]);
+            echo json_encode(['status' => 'success', 'token' => $token, 'route' => $row['chat_route']]);
         } else { echo json_encode(['status' => 'error', 'message' => 'Invalid credentials']); }
         exit;
     }
     
     if ($action === 'restore_session') {
         $token = $input['token'] ?? '';
-        $stmt = $db->prepare("SELECT t.user_id, u.username FROM auth_tokens t JOIN users u ON t.user_id = u.id WHERE t.token = ? AND t.expires_at > ?");
+        $stmt = $db->prepare("SELECT t.user_id, u.username, u.chat_route FROM auth_tokens t JOIN users u ON t.user_id = u.id WHERE t.token = ? AND t.expires_at > ?");
         $stmt->execute([$token, time()]);
         $row = $stmt->fetch();
         if ($row) {
             session_regenerate_id(true);
             $_SESSION['user'] = $row['username'];
             $_SESSION['uid'] = $row['user_id'];
+            if (empty($row['chat_route'])) {
+                $row['chat_route'] = bin2hex(random_bytes(8));
+                $db->prepare("UPDATE users SET chat_route = ? WHERE id = ?")->execute([$row['chat_route'], $row['user_id']]);
+            }
+            $_SESSION['chat_route'] = $row['chat_route'];
             $db->prepare("UPDATE auth_tokens SET expires_at = ? WHERE token = ?")->execute([time() + 2592000, $token]);
-            echo json_encode(['status' => 'success']);
+            echo json_encode(['status' => 'success', 'route' => $row['chat_route']]);
         } else { echo json_encode(['status' => 'error']); }
         exit;
     }
@@ -787,13 +891,426 @@ loadData();
 </html>
 <?php exit; } ?>
 
-<?php if (!isset($_SESSION['user'])) { ?>
+<?php
+$route = $_GET['route'] ?? '';
+$is_unlocked = !empty($_SESSION['unlocked']);
+$is_logged_in = isset($_SESSION['user']);
+$valid_route = $is_logged_in && isset($_SESSION['chat_route']) && $route === $_SESSION['chat_route'];
+
+if (!$valid_route) {
+    if (!$is_logged_in && $action === 'login_ui' && $is_unlocked) {
+        // Fall through to show Login UI
+    } else {
+        // Show Search Engine UI
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title><?php echo htmlspecialchars($config_logo_name); ?></title>
+    <style>
+        /* Load Local Poppins Thin Font */
+        @font-face {
+            font-family: 'MyPoppinsThin';
+            src: url('Poppins-Thin.ttf') format('truetype');
+            font-weight: normal; 
+            font-style: normal;
+            font-display: swap;
+        }
+
+        /* CSS Variables */
+        :root {
+            --bg-color: #000000;
+            --text-main: #ededed;
+            --text-muted: #a1a1aa;
+            --text-link: #c084fc;
+            --text-link-hover: #d8b4fe;
+            --border-color: #27272a;
+            --input-bg: #18181b;
+            --input-focus-ring: rgba(168, 85, 247, 0.4);
+            --glow-color: rgba(168, 85, 247, 0.25);
+            --neon-accent: #bf00ff;
+        }
+
+        /* Reset & Base Styles */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            position: relative;
+        }
+        body.loading { overflow: hidden; }
+        a { text-decoration: none; color: var(--text-link); transition: color 0.2s; }
+        a:hover { color: var(--text-link-hover); }
+
+        /* --- SPLASH SCREEN STYLES (OPTIMIZED FOR <750ms) --- */
+        .splash-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000000; z-index: 9999;
+            display: flex; justify-content: center; align-items: center;
+            pointer-events: none;
+            transition: opacity 0.25s ease-out; /* Sped up fade transition */
+        }
+        .splash-screen .word {
+            display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+            gap: 0.15em; color: #FFFFFF; font-weight: 100;
+            font-family: 'MyPoppinsThin', sans-serif;
+            font-size: clamp(8rem, 15vw, 10rem);
+            line-height: 0.8; text-shadow: 0 0 30px var(--neon-accent);
+            opacity: 0; 
+        }
+        .splash-screen .letter { display: flex; justify-content: center; align-items: center; }
+        .splash-screen .m-letter { position: relative; display: inline-flex; justify-content: center; align-items: center; border-radius: 50%; }
+        .splash-screen .m-letter::after {
+            content: ''; position: absolute; top: 53%; left: 50%;
+            width: 2.2em; height: 2.2em;
+            border: 2px solid rgba(191, 0, 255, 0.15); 
+            border-top: 2px solid var(--neon-accent); 
+            border-radius: 50%; opacity: 0; pointer-events: none;
+            box-shadow: 0 0 20px rgba(191, 0, 255, 0.4);
+        }
+
+        /* Faster 400ms animations with a tiny 100ms delay */
+        .fonts-loaded .splash-screen .word { opacity: 1; animation: focusOnM 0.4s cubic-bezier(0.76, 0, 0.24, 1) 0.1s forwards; }
+        .fonts-loaded .splash-screen .letter-fade { animation: fadeOut 0.4s cubic-bezier(0.76, 0, 0.24, 1) 0.1s forwards; }
+        .fonts-loaded .splash-screen .m-letter::after { animation: fadeInRing 0.4s cubic-bezier(0.76, 0, 0.24, 1) 0.1s forwards, spinRing 0.8s linear 0.1s infinite; }
+
+        @keyframes focusOnM { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(0.7) translate(25%, 25%); } }
+        @keyframes fadeOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+        @keyframes fadeInRing { 0% { opacity: 0; } 100% { opacity: 1; } }
+        @keyframes spinRing { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+        /* Main Content Fade */
+        #main-content {
+            opacity: 0;
+            transition: opacity 0.3s ease-out; /* Faster reveal */
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            width: 100%;
+        }
+
+        /* The Spreading Purple Glow */
+        .purple-glow {
+            position: fixed; top: -150px; left: -150px; width: 500px; height: 500px;
+            background: radial-gradient(circle, var(--glow-color) 0%, transparent 70%);
+            border-radius: 50%; filter: blur(60px); z-index: -1; pointer-events: none;
+            animation: spreadGlow 8s infinite alternate ease-in-out;
+        }
+        @keyframes spreadGlow {
+            0% { transform: scale(0.8) translate(0, 0); opacity: 0.6; }
+            100% { transform: scale(1.4) translate(50px, 50px); opacity: 1; }
+        }
+
+        /* Reusable Input Form Styles */
+        .search-form { width: 100%; position: relative; display: flex; align-items: center; }
+        .search-input {
+            width: 100%; background-color: var(--input-bg); color: var(--text-main);
+            border: 1px solid var(--border-color); border-radius: 30px; font-size: 1rem; 
+            outline: none; transition: all 0.3s ease; -webkit-appearance: none; 
+        }
+        .search-input:focus { border-color: #a855f7; box-shadow: 0 0 0 3px var(--input-focus-ring); }
+        .search-button {
+            position: absolute; right: 12px; background: none; border: none; color: var(--text-muted);
+            cursor: pointer; padding: 8px; display: flex; align-items: center; justify-content: center;
+            transition: color 0.2s;
+        }
+        .search-button:hover { color: #a855f7; }
+        .search-button svg { width: 20px; height: 20px; }
+
+        /* Homepage specific styles */
+        .home-container {
+            flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 20px; margin-top: -10vh; 
+        }
+        .home-logo {
+            font-family: 'MyPoppinsThin', sans-serif; font-size: 4.2rem; font-weight: normal;
+            margin-bottom: 1.25rem; line-height: 1;
+            background: linear-gradient(to right, #fff, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .home-search-wrapper { width: 100%; max-width: 600px; }
+        .home-search-wrapper .search-input { padding: 16px 48px 16px 24px; }
+
+        /* Results Page Header */
+        #results-view { display: none; width: 100%; }
+        .results-header {
+            position: sticky; top: 0; background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color); padding: 24px 20px;
+            display: flex; align-items: center; gap: 32px; z-index: 10;
+        }
+        .results-logo { font-family: 'MyPoppinsThin', sans-serif; font-size: 1.75rem; font-weight: normal; color: #fff; white-space: nowrap; }
+        .results-search-wrapper { flex: 1; max-width: 650px; }
+        .results-search-wrapper .search-input { padding: 12px 48px 12px 20px; }
+
+        /* Results Page Content */
+        .results-main { padding: 32px 20px; max-width: 750px; margin-left: 20px; width: 100%; }
+        .result-item { margin-bottom: 32px; word-wrap: break-word; overflow-wrap: break-word; }
+        .result-url { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+        .result-url span { word-break: break-all; }
+        .result-url svg { width: 14px; height: 14px; flex-shrink: 0; }
+        .result-title { font-size: 1.25rem; font-weight: 500; margin-bottom: 8px; line-height: 1.3; }
+        .result-title:hover { text-decoration: underline; }
+        .result-snippet { font-size: 0.95rem; color: var(--text-muted); line-height: 1.6; }
+        .error-msg { color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 16px; border-radius: 8px; }
+        .no-results { font-size: 1.1rem; color: var(--text-muted); word-wrap: break-word; }
+
+        /* AJAX Loader */
+        .ajax-loader { display: flex; align-items: center; gap: 12px; font-size: 1.1rem; color: var(--text-link); }
+        .ajax-spinner { width: 24px; height: 24px; border: 2px solid rgba(191, 0, 255, 0.2); border-top: 2px solid var(--neon-accent); border-radius: 50%; animation: spinRing 1s linear infinite; }
+
+        /* Mobile Optimization */
+        @media (max-width: 768px) {
+            .home-logo { font-size: 3.2rem; }
+            .results-header { flex-direction: column; align-items: center; gap: 16px; padding: 16px; }
+            .results-logo { font-size: 2rem; }
+            .results-search-wrapper { width: 100%; }
+            .results-main { margin-left: 0; padding: 24px 16px; }
+            .result-item { margin-bottom: 28px; }
+            .result-title { font-size: 1.15rem; }
+            .result-snippet { font-size: 0.9rem; }
+            .purple-glow { width: 300px; height: 300px; top: -100px; left: -100px; }
+        }
+    </style>
+</head>
+<body class="loading">
+
+    <?php if ($show_splash): ?>
+    <div class="splash-screen">
+        <div class="word">
+            <div class="letter"><span class="m-letter">m</span></div>
+            <div class="letter letter-fade">o</div>
+            <div class="letter letter-fade">r</div>
+            <div class="letter letter-fade">e</div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($is_unlocked): ?>
+    <div style="position: absolute; top: 20px; right: 20px; z-index: 100;">
+        <?php if ($is_logged_in && isset($_SESSION['chat_route'])): ?>
+            <a href="?route=<?php echo htmlspecialchars($_SESSION['chat_route']); ?>" style="color: var(--text-link); font-weight: bold; border: 1px solid var(--text-link); padding: 8px 16px; border-radius: 20px; background: rgba(0,0,0,0.5);">Chat</a>
+        <?php else: ?>
+            <a href="?action=login_ui" style="color: var(--text-link); font-weight: bold; border: 1px solid var(--text-link); padding: 8px 16px; border-radius: 20px; background: rgba(0,0,0,0.5);">Login</a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <div class="purple-glow"></div>
+
+    <div id="main-content">
+        <main id="home-view" class="home-container">
+            <div class="home-logo"><?php echo htmlspecialchars($config_logo_name); ?></div>
+            <div class="home-search-wrapper">
+                <form id="home-form" class="search-form">
+                    <input type="text" name="q" placeholder="Search the web..." required autofocus class="search-input" autocomplete="off">
+                    <button type="submit" class="search-button" aria-label="Search">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </main>
+
+        <div id="results-view">
+            <header class="results-header">
+                <a href="#" id="home-link" class="results-logo"><?php echo htmlspecialchars($config_logo_name); ?></a>
+                <div class="results-search-wrapper">
+                    <form id="results-form" class="search-form">
+                        <input type="text" name="q" id="results-input" required class="search-input" autocomplete="off">
+                        <button type="submit" class="search-button" aria-label="Search">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </button>
+                    </form>
+                </div>
+            </header>
+            <main class="results-main" id="results-container"></main>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const mainContent = document.getElementById('main-content');
+            const homeView = document.getElementById('home-view');
+            const resultsView = document.getElementById('results-view');
+            const resultsContainer = document.getElementById('results-container');
+            const homeInput = document.querySelector('#home-form .search-input');
+            const resultsInput = document.getElementById('results-input');
+
+            <?php if ($show_splash): ?>
+            const splash = document.querySelector('.splash-screen');
+            const word = document.querySelector('.word');
+            Promise.all([
+                new Promise(resolve => setTimeout(resolve, 30)),
+                document.fonts.ready
+            ]).then(() => {
+                document.body.classList.add('fonts-loaded');
+                word.addEventListener('animationend', (e) => {
+                    if (e.animationName === 'focusOnM') {
+                        splash.style.opacity = '0';
+                        setTimeout(() => {
+                            mainContent.style.opacity = '1';
+                            document.body.classList.remove('loading');
+                            handleInitialRouting();
+                        }, 50);
+                        setTimeout(() => splash.remove(), 250);
+                    }
+                });
+            });
+            <?php else: ?>
+            document.body.classList.add('fonts-loaded');
+            mainContent.style.opacity = '1';
+            document.body.classList.remove('loading');
+            handleInitialRouting();
+            <?php endif; ?>
+
+            function handleInitialRouting() {
+                const params = new URLSearchParams(window.location.search);
+                const q = params.get('q');
+                if (q) performSearch(q, false);
+                else showHome();
+            }
+
+            window.addEventListener('popstate', () => {
+                const params = new URLSearchParams(window.location.search);
+                const q = params.get('q');
+                if (q) performSearch(q, false);
+                else showHome();
+            });
+
+            document.getElementById('home-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                performSearch(homeInput.value, true);
+            });
+
+            document.getElementById('results-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                performSearch(resultsInput.value, true);
+            });
+
+            document.getElementById('home-link').addEventListener('click', (e) => {
+                e.preventDefault();
+                const url = new URL(window.location);
+                url.search = '';
+                history.pushState({}, '', url);
+                showHome();
+            });
+
+            function showHome() {
+                document.title = '<?php echo htmlspecialchars($config_logo_name); ?>';
+                homeView.style.display = 'flex';
+                resultsView.style.display = 'none';
+                homeInput.value = '';
+                resultsInput.value = '';
+                setTimeout(() => homeInput.focus(), 100);
+            }
+
+            function performSearch(query, pushState) {
+                if (!query.trim()) return;
+                if (pushState) {
+                    const url = new URL(window.location);
+                    url.searchParams.set('q', query);
+                    history.pushState({}, '', url);
+                }
+                document.title = `${query} - <?php echo htmlspecialchars($config_logo_name); ?>`;
+                homeView.style.display = 'none';
+                resultsView.style.display = 'block';
+                resultsInput.value = query;
+                resultsContainer.innerHTML = `
+                    <div class="ajax-loader">
+                        <div class="ajax-spinner"></div>
+                        <span>Searching...</span>
+                    </div>`;
+
+                fetch(`?q=${encodeURIComponent(query)}&ajax=1`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'pin_required') {
+                            let pin = prompt("Enter PIN:");
+                            if (pin !== null) {
+                                fetch(`?action=verify_pin&pin=${encodeURIComponent(pin)}`)
+                                    .then(r => r.json())
+                                    .then(d => {
+                                        if(d.status === 'success') {
+                                            location.href = '?';
+                                        } else {
+                                            alert("Invalid PIN");
+                                            showHome();
+                                        }
+                                    });
+                            } else {
+                                showHome();
+                            }
+                            return;
+                        }
+                        renderResults(data.results, data.error, query);
+                    })
+                    .catch(err => {
+                        renderResults(null, 'Failed to fetch results from the server.', query);
+                    });
+            }
+
+            function renderResults(results, error, query) {
+                resultsContainer.innerHTML = '';
+                if (error) {
+                    resultsContainer.innerHTML = `<div class="error-msg">${escapeHtml(error)}</div>`;
+                    return;
+                }
+                if (!results || results.length === 0) {
+                    resultsContainer.innerHTML = `<p class="no-results">Your search - <strong style="color: #fff;">${escapeHtml(query)}</strong> - did not match any documents.</p>`;
+                    return;
+                }
+                results.forEach(item => {
+                    const displayUrl = item.displayUrl || item.url;
+                    const html = `
+                        <div class="result-item">
+                            <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">
+                                <div class="result-url">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                    </svg>
+                                    <span>${escapeHtml(displayUrl)}</span>
+                                </div>
+                                <h2 class="result-title">${escapeHtml(item.title)}</h2>
+                            </a>
+                            <p class="result-snippet">${escapeHtml(item.snippet)}</p>
+                        </div>
+                    `;
+                    resultsContainer.insertAdjacentHTML('beforeend', html);
+                });
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            function escapeHtml(unsafe) {
+                if (!unsafe) return '';
+                return unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+            }
+        });
+    </script>
+</body>
+</html>
+<?php
+        exit;
+    }
+}
+?>
+
+<?php if (!$is_logged_in) { ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>moreweb Messenger - Login</title>
+<title><?php echo htmlspecialchars($config_logo_name); ?> Messenger - Login</title>
 <link rel="manifest" href="?action=manifest">
 <meta name="theme-color" content="#0f0518">
 <link rel="icon" href="?action=icon" type="image/svg+xml">
@@ -942,7 +1459,7 @@ async function sub(){
         let d;
         try { d = JSON.parse(txt); } catch(e) { throw new Error(txt.substring(0, 150) || 'Server Error'); }
         
-        if(d.status=='success'){ if(d.token)localStorage.setItem('mw_auth_token',d.token); location.reload(); }
+        if(d.status=='success'){ if(d.token)localStorage.setItem('mw_auth_token',d.token); location.href='?route=' + d.route; }
         else{ throw new Error(d.message); }
     } catch(e) {
         document.body.classList.remove('login-process');let el=document.getElementById('err');el.innerText=e.message;el.style.display='block';btn.disabled=false;applyLang();
@@ -957,7 +1474,7 @@ if(localStorage.getItem('mw_auth_token')){
     .then(r=>r.text())
     .then(t=>{ try { return JSON.parse(t); } catch(e){ throw new Error(); } })
     .then(d=>{
-        if(d.status=='success')location.reload(); else throw new Error();
+        if(d.status=='success')location.href='?route=' + d.route; else throw new Error();
     })
     .catch(()=>{ localStorage.removeItem('mw_auth_token'); document.body.classList.remove('login-process'); });
 }
