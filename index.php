@@ -1560,7 +1560,7 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
                 
                 <div class="mobile-only" style="margin-top:30px;border-top:1px solid var(--border);padding-top:20px">
                     <h3 data-i18n="tab_about">About</h3>
-                    <p style="color:#888;">moreweb Messenger v0.0.3</p>
+                    <p style="color:#888;">moreweb Messenger v0.0.5</p>
                     <button class="btn-sec" style="margin-bottom:20px;cursor:pointer;padding:8px 16px;border-radius:20px" onclick="checkUpdates()" data-i18n="check_updates">Check for Updates</button><br>
                     <a href="https://github.com/iWebbIO/php-messenger" target="_blank" class="about-link">GitHub Repository</a>
                     <br><br>
@@ -1573,7 +1573,7 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('?action=sw');
             <div class="panel-header" data-i18n="tab_about">About</div>
             <div class="list-area" style="padding:20px; text-align:center; color:#ccc;">
                 <h2>moreweb Messenger</h2>
-                <p style="color:#888;">Version 0.0.3</p>
+                <p style="color:#888;">Version 0.0.5</p>
                 <p data-i18n="about_desc">A secure, self-contained messenger with ephemeral server storage and local history persistence.</p>
                 <br>
                 <button class="btn-sec" style="margin-bottom:20px;cursor:pointer;padding:8px 16px;border-radius:20px" onclick="checkUpdates()" data-i18n="check_updates">Check for Updates</button><br>
