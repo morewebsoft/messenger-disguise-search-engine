@@ -27,6 +27,18 @@ $adminPass = ''; // Set these to enable Admin Panel
 // -------------------------------------------------------------------------
 $dbFile = __DIR__ . '/chat_mw.db';
 
+// Auto-create or update .htaccess to protect database files
+$htaccessFile = __DIR__ . '/.htaccess';
+$htaccessRule = "<FilesMatch \"^(chat_mw\.db|chat_mw\.db-shm|chat_mw\.db-wal)$\">\nRequire all denied\n</FilesMatch>";
+if (!file_exists($htaccessFile)) {
+    @file_put_contents($htaccessFile, $htaccessRule . "\n");
+} else {
+    $currentHtaccess = @file_get_contents($htaccessFile);
+    if ($currentHtaccess !== false && strpos($currentHtaccess, 'chat_mw.db') === false) {
+        @file_put_contents($htaccessFile, "\n# moreweb Messenger DB Protection\n" . $htaccessRule . "\n", FILE_APPEND);
+    }
+}
+
 try {
     $db = new PDO("sqlite:$dbFile");
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
