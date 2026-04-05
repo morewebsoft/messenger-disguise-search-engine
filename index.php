@@ -3804,7 +3804,10 @@ function createMsgNode(m, showSender, history){
             }
         }
     };
-    div.ondblclick=()=>{ sendReact(m.timestamp, '❤️'); };
+    div.ondblclick=()=>{ 
+        if(m.reacts && m.reacts[ME] === '❤️') sendReact(m.timestamp, null);
+        else sendReact(m.timestamp, '❤️'); 
+    };
 
     if(m.type=='video') {
         let ph = div.querySelector(`#vid-poster-${m.timestamp}`);
@@ -4097,8 +4100,11 @@ function showContextMenu(e, type, data) {
     }
     menu.style.visibility = 'hidden';
     menu.style.display = 'block';
-    if (x + menu.offsetWidth > window.innerWidth) x = window.innerWidth - menu.offsetWidth - 10;
-    if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 10;
+    
+    let mw = menu.offsetWidth, mh = menu.offsetHeight;
+    if (x + mw > window.innerWidth) x = Math.max(0, x - mw);
+    if (y + mh > window.innerHeight) y = Math.max(0, y - mh);
+    
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
     menu.style.visibility = 'visible';
