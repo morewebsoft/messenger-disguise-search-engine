@@ -3798,6 +3798,7 @@ function createMsgNode(m, showSender, history){
     };
 
     div.onclick=(e)=>{
+        if (window.justFinishedDrag) return;
         if(selectedMsgs.size > 0) {
             if(!e.target.closest('.msg-menu-icon')) {
                 toggleSelection(m.timestamp);
@@ -4072,6 +4073,7 @@ function showContextMenu(e, type, data) {
         </div>
         <div class="ctx-item" onclick="ctxAction('reply')">Reply</div>
         ${isMine && isText ? `<div class="ctx-item" onclick="ctxAction('edit')">Edit</div>` : ''}
+        <div class="ctx-item" onclick="ctxAction('select')">Select</div>
         <div class="ctx-item" onclick="ctxAction('forward')">Forward</div>
         <div class="ctx-item" onclick="ctxAction('copy')">Copy</div>
         <div class="ctx-item" onclick="ctxAction('pin')">Pin Message</div>
@@ -4135,6 +4137,7 @@ async function ctxAction(act, arg) {
             document.getElementById('txt').focus();
             toggleMainBtn();
         }
+        else if(act=='select') { toggleSelection(m.timestamp); }
         else if(act=='forward') promptModal("Forward", "Username:", u=>{ if(u) req('send',{message:m.message,type:m.type,extra:m.extra_data,to_user:u}); });
         else if(act=='copy') { if(m.type=='text') { navigator.clipboard.writeText(m.message); showToast('Copied to clipboard'); } }
         else if(act=='pin') { 
@@ -5130,6 +5133,9 @@ window.oncontextmenu = (e) => {
 };
 window.onkeydown = (e) => {
     if(e.key === 'Escape') {
+        let ctx = document.getElementById('ctx-menu');
+        if(ctx && ctx.style.display === 'block') { ctx.style.display = 'none'; return; }
+        if(selectedMsgs.size > 0) { clearSelection(); return; }
         if(document.getElementById('app-modal').style.display === 'flex') document.getElementById('modal-cancel').click();
         else if(document.getElementById('lightbox').style.display === 'flex') closeLightbox();
         else if(document.getElementById('media-preview').style.display === 'flex') closePreview();
@@ -5227,6 +5233,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('mouseup', () => {
         if (isDraggingToSelect) {
             isDraggingToSelect = false;
+            if (hasDragged) {
+                window.justFinishedDrag = true;
+                setTimeout(() => window.justFinishedDrag = false, 50);
+            }
         }
     });
 
