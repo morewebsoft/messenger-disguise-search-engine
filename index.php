@@ -15,6 +15,39 @@ if ($lightweightMode) {
 } else {
     header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' data: blob: https://fonts.googleapis.com https://fonts.gstatic.com; frame-ancestors 'none';");
 }
+
+$action = $_GET['action'] ?? '';
+
+if ($action === 'manifest') {
+    header('Content-Type: application/manifest+json');
+    header('Cache-Control: public, max-age=86400');
+    echo json_encode([
+        "name" => "moreweb Messenger",
+        "short_name" => "Messenger",
+        "start_url" => "index.php",
+        "display" => "standalone",
+        "background_color" => "#0f0518",
+        "theme_color" => "#0f0518",
+        "icons" => [
+            ["src" => "?action=icon", "sizes" => "192x192", "type" => "image/svg+xml"],
+            ["src" => "?action=icon", "sizes" => "512x512", "type" => "image/svg+xml"]
+        ]
+    ]);
+    exit;
+}
+if ($action === 'icon') {
+    header('Content-Type: image/svg+xml');
+    header('Cache-Control: public, max-age=86400');
+    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="100" fill="#1a0b2e"/><path d="M256 85c-93 0-168 69-168 154 0 49 25 92 64 121v62l60-33c14 4 29 6 44 6 93 0 168-69 168-154S349 85 256 85z" fill="#a855f7"/></svg>';
+    exit;
+}
+if ($action === 'sw') {
+    header('Content-Type: application/javascript');
+    header('Cache-Control: public, max-age=3600');
+    echo "const CACHE='mw-v3';self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['index.php','?action=icon'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>{if(k!==CACHE)return caches.delete(k)}))).then(()=>self.clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!='GET')return;e.respondWith(fetch(e.request).then(r=>{let rc=r.clone();caches.open(CACHE).then(c=>c.put(e.request,rc));return r}).catch(()=>caches.match(e.request).then(r=>r||new Response('',{status:404}))))});self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cl=>{for(let c of cl){if(c.url&&'focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow('index.php');}));});";
+    exit;
+}
+
 ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_samesite', 'Strict');
 ini_set('session.use_strict_mode', 1);
@@ -166,8 +199,6 @@ try {
 // -------------------------------------------------------------------------
 // 2. BACKEND API
 // -------------------------------------------------------------------------
-$action = $_GET['action'] ?? '';
-
 $query = isset($_GET['q']) ? trim($_GET['q']) : '';
 $isAjax = isset($_GET['ajax']) && $_GET['ajax'] === '1';
 
@@ -247,36 +278,6 @@ if ($action === 'verify_pin') {
     } else {
         echo json_encode(['status' => 'error']);
     }
-    exit;
-}
-
-if ($action === 'manifest') {
-    header('Content-Type: application/manifest+json');
-    header('Cache-Control: public, max-age=86400');
-    echo json_encode([
-        "name" => "moreweb Messenger",
-        "short_name" => "Messenger",
-        "start_url" => "index.php",
-        "display" => "standalone",
-        "background_color" => "#0f0518",
-        "theme_color" => "#0f0518",
-        "icons" => [
-            ["src" => "?action=icon", "sizes" => "192x192", "type" => "image/svg+xml"],
-            ["src" => "?action=icon", "sizes" => "512x512", "type" => "image/svg+xml"]
-        ]
-    ]);
-    exit;
-}
-if ($action === 'icon') {
-    header('Content-Type: image/svg+xml');
-    header('Cache-Control: public, max-age=86400');
-    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="100" fill="#1a0b2e"/><path d="M256 85c-93 0-168 69-168 154 0 49 25 92 64 121v62l60-33c14 4 29 6 44 6 93 0 168-69 168-154S349 85 256 85z" fill="#a855f7"/></svg>';
-    exit;
-}
-if ($action === 'sw') {
-    header('Content-Type: application/javascript');
-    header('Cache-Control: public, max-age=3600');
-    echo "const CACHE='mw-v3';self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['index.php','?action=icon'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>{if(k!==CACHE)return caches.delete(k)}))).then(()=>self.clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!='GET')return;e.respondWith(fetch(e.request).then(r=>{let rc=r.clone();caches.open(CACHE).then(c=>c.put(e.request,rc));return r}).catch(()=>caches.match(e.request).then(r=>r||new Response('',{status:404}))))});self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cl=>{for(let c of cl){if(c.url&&'focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow('index.php');}));});";
     exit;
 }
 if ($action === 'ping') {
