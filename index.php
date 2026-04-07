@@ -4986,7 +4986,10 @@ function jsEsc(t){ return t?String(t).replace(/\\/g, '\\\\').replace(/'/g, "\\'"
 
 document.getElementById('txt').onkeydown=e=>{if(e.key=='Enter' && !e.shiftKey){e.preventDefault();send()}};
 document.getElementById('txt').onkeydown=e=>{if(e.key=='Enter' && !e.shiftKey){e.preventDefault();handleMainBtn()}};
-document.getElementById('txt').addEventListener('focus', () => { document.getElementById('att-menu').style.display = 'none'; });
+document.getElementById('txt').addEventListener('focus', () => { 
+    document.getElementById('att-menu').style.display = 'none'; 
+    setTimeout(() => scrollToBottom(true), 300);
+});
 
 async function startRec(){
     try{
